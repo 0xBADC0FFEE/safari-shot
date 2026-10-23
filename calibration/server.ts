@@ -74,7 +74,13 @@ function reporterScript(reportId: string) {
       scheme: matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light', standalone: navigator.standalone })
     fetch('/report/${reportId}', { method: 'POST', body: JSON.stringify(states) })
   }
+  let settle
   addEventListener('load', () => setTimeout(() => report('load'), 300))
+  // Safari before 26 has no scrollend event.
+  addEventListener('scroll', () => {
+    clearTimeout(settle)
+    settle = setTimeout(() => report('scroll-settled'), 300)
+  })
   addEventListener('scrollend', () => report('scrollend'))
 })()
 </script>`
