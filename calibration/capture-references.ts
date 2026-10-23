@@ -18,6 +18,10 @@ const OVERSCROLL_HOLD_S = 2.5
 const OVERSCROLL_DISTANCE_PT = 260
 const SCROLL_VELOCITY = 400
 const FLING_VELOCITY = 6000
+const SAFARI = 'com.apple.mobilesafari'
+const TAB_CLOSE_SETTLE_S = 1.5
+// Points inside the web view of an iPhone 17 Pro sized screen, clear of the toolbar.
+const GESTURE_CENTER: Record<Scenario['orientation'], { x: number, y: number }> = { portrait: { x: 200, y: 450 }, landscape: { x: 437, y: 220 } }
 
 const { values } = parseArgs({
   options: {
@@ -55,7 +59,7 @@ try {
           const output = join(dir, `${stem}.png`)
           if (!values.overwrite && await access(output).then(() => true, () => false)) continue
           try {
-            await captureState(session, corpusCase.name, stem, state, output)
+            await captureState(session, corpusCase.name, stem, scenario, output)
             console.log(`${corpusCase.name} ${stem}`)
           } catch (error) {
             failures.push(`${corpusCase.name} ${stem}: ${error}`)
@@ -78,11 +82,12 @@ try {
   }
 }
 
-async function captureState(session: SimulatorSession, caseName: string, stem: string, state: ScrollState, output: string) {
+async function captureState(session: SimulatorSession, caseName: string, stem: string, { state, orientation }: Scenario, output: string) {
+  // Every openurl adds a tab; in landscape more than one tab brings up a tab bar that changes the geometry.
+  if (orientation === 'landscape') await session.perform([{ action: 'activate', app: SAFARI }, { action: 'closeAllTabs', app: SAFARI }, { action: 'sleep', duration: TAB_CLOSE_SETTLE_S }])
   await session.open(`http://localhost:${CALIBRATION_PORT}/case/${caseName}?report=${caseName}.${stem}&t=${Date.now()}`)
   await sleep(LOAD_SETTLE_MS)
-  const midX = 200
-  const midY = 450
+  const { x: midX, y: midY } = GESTURE_CENTER[orientation]
   switch (state) {
     case 'initial':
       break

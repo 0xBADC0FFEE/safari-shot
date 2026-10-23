@@ -20,6 +20,7 @@ export type DriverStep =
   | { action: 'drag', app?: string, x: number, y: number, toX: number, toY: number, duration?: number, hold?: number, velocity?: number }
   | { action: 'swipe', app?: string, label: 'up' | 'down', velocity?: number }
   | { action: 'tapLabel', app?: string, label: string, timeout?: number }
+  | { action: 'closeAllTabs', app?: string }
   | { action: 'typeText', app?: string, label: string }
   | { action: 'dumpTree', app?: string, label: string }
   | { action: 'sleep', duration: number }

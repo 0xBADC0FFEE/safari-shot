@@ -62,6 +62,22 @@ final class DriverTests: XCTestCase {
         app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: x ?? 0, dy: y ?? 0))
     }
 
+    // Safari's Tabs button menu offers "Close All N Tabs", then asks to confirm with a button of the same label.
+    private func closeAllTabs(_ app: XCUIApplication) throws {
+        let tabsButton = app.buttons["TabOverviewButton"]
+        guard tabsButton.waitForExistence(timeout: 5) else { throw StepError(description: "Tabs button not found") }
+        tabsButton.press(forDuration: 1.0)
+        let closeAll = NSPredicate(format: "label BEGINSWITH 'Close All'")
+        let menuItem = app.descendants(matching: .any).matching(closeAll).firstMatch
+        guard menuItem.waitForExistence(timeout: 5) else {
+            let labels = app.buttons.allElementsBoundByIndex.map(\.label).joined(separator: ", ")
+            throw StepError(description: "no Close All item after long-pressing Tabs; buttons: \(labels)")
+        }
+        menuItem.tap()
+        let confirm = app.buttons.matching(closeAll).firstMatch
+        if confirm.waitForExistence(timeout: 3) { confirm.tap() }
+    }
+
     struct StepError: Error, CustomStringConvertible {
         let description: String
     }
@@ -93,6 +109,8 @@ final class DriverTests: XCTestCase {
                 throw StepError(description: "element '\(label)' not found")
             }
             element.tap()
+        case "closeAllTabs":
+            try closeAllTabs(app)
         case "typeText":
             app.typeText(try XCTUnwrap(step.label))
         case "dumpTree":

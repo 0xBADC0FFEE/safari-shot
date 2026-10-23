@@ -14,6 +14,7 @@ const run = promisify(execFile)
 const OUT_DIR = join(import.meta.dirname, 'out', 'devices')
 const REPORTS_DIR = join(import.meta.dirname, 'out', 'reports')
 const LOAD_SETTLE_MS = 4000
+const SAFARI = 'com.apple.mobilesafari'
 // Its own port, so a measurement can run while references are being captured.
 const MEASURE_PORT = 8766
 const SCROLL_SETTLE_MS = 1500
@@ -94,6 +95,8 @@ async function dismissFirstRunTips(session: SimulatorSession) {
 async function measure(session: SimulatorSession, type: string, orientation: string): Promise<DeviceMeasurement> {
   const slug = `${type.replace(/\W+/g, '-')}.${orientation}`
   const reportId = `geometry.${slug}`
+  // Each openurl adds a tab, and with several tabs landscape Safari shows a tab bar that changes the geometry.
+  await session.perform([{ action: 'activate', app: SAFARI }, { action: 'closeAllTabs', app: SAFARI }, { action: 'sleep', duration: 1.5 }])
   await session.open(`http://localhost:${MEASURE_PORT}/case/geometry?report=${reportId}&t=${Date.now()}`)
   await sleep(LOAD_SETTLE_MS)
   const expandedPath = join(OUT_DIR, `${slug}.expanded.png`)
