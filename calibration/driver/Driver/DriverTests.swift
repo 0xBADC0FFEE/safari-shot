@@ -65,6 +65,10 @@ final class DriverTests: XCTestCase {
     // Safari's Tabs button menu offers "Close All N Tabs", then asks to confirm with a button of the same label.
     private func closeAllTabs(_ app: XCUIApplication) throws {
         let tabsButton = app.buttons["TabOverviewButton"]
+        if !tabsButton.waitForExistence(timeout: 2) {
+            // A scrolled landscape page hides all of Safari's chrome; a tap at the screen top brings it back.
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02)).tap()
+        }
         guard tabsButton.waitForExistence(timeout: 5) else { throw StepError(description: "Tabs button not found") }
         tabsButton.press(forDuration: 1.0)
         let closeAll = NSPredicate(format: "label BEGINSWITH 'Close All'")

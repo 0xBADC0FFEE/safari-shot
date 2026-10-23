@@ -65,6 +65,7 @@ if (import.meta.main) {
       ios: { type: 'string', default: '26' },
       cases: { type: 'string' },
       states: { type: 'string' },
+      match: { type: 'string' },
       sheets: { type: 'boolean', default: false },
     },
   })
@@ -72,9 +73,9 @@ if (import.meta.main) {
   if (!ios) throw new Error(`--ios must be one of ${IOS_VERSIONS.join(', ')}`)
   const renderer = await startRenderer()
   try {
-    const filter = { cases: values.cases?.split(','), states: values.states?.split(',') as ScrollState[] | undefined }
+    const filter = { cases: values.cases?.split(','), states: values.states?.split(',') as ScrollState[] | undefined, match: values.match ? new RegExp(values.match) : undefined }
     const expectations = await buildExpectations(renderer, ios, filter)
-    if (!filter.cases && !filter.states) {
+    if (!filter.cases && !filter.states && !filter.match) {
       await mkdir(EXPECTATIONS_DIR, { recursive: true })
       await writeFile(join(EXPECTATIONS_DIR, `ios${values.ios}.json`), JSON.stringify(expectations, null, 1))
     }
@@ -116,10 +117,10 @@ export async function startRenderer(): Promise<Renderer> {
  * Reads Simulator references and records the panel colors they show.
  * @param renderer browser and corpus server used to render each scenario once, to learn its fills
  * @param ios iOS major version of the references
- * @param filter optional case and state restriction
+ * @param filter optional case, state and stem-pattern restriction
  * @returns one expectation per reference image
  */
-export async function buildExpectations(renderer: Renderer, ios: IosVersion, filter: { cases?: string[], states?: ScrollState[] } = {}): Promise<Expectation[]> {
+export async function buildExpectations(renderer: Renderer, ios: IosVersion, filter: { cases?: string[], states?: ScrollState[], match?: RegExp } = {}): Promise<Expectation[]> {
   const root = join(REFERENCES_DIR, `ios${ios}`)
   const expectations: Expectation[] = []
   for (const name of (await readdir(root)).sort()) {
@@ -127,6 +128,7 @@ export async function buildExpectations(renderer: Renderer, ios: IosVersion, fil
     for (const file of (await readdir(join(root, name))).filter(f => f.endsWith('.png')).sort()) {
       const stem = basename(file, '.png')
       if (filter.states && !filter.states.includes(parseStem(stem).scenario.state)) continue
+      if (filter.match && !filter.match.test(stem)) continue
       const replay = await readReplay(ios, name, stem)
       const { report } = await render(renderer, ios, name, stem, replay)
       const reference = await rawImage(await readFile(join(root, name, file)))

@@ -86,7 +86,8 @@ try {
 
 async function captureState(session: SimulatorSession, caseName: string, stem: string, { state, orientation }: Scenario, output: string) {
   // Every openurl adds a tab; in landscape more than one tab brings up a tab bar that changes the geometry.
-  if (orientation === 'landscape') await session.perform([{ action: 'activate', app: SAFARI }, { action: 'closeAllTabs', app: SAFARI }, { action: 'sleep', duration: TAB_CLOSE_SETTLE_S }])
+  // The iPhone home screen does not rotate, so the orientation is set again once Safari is in front.
+  if (orientation === 'landscape') await session.perform([{ action: 'activate', app: SAFARI }, { action: 'orient', label: orientation }, { action: 'closeAllTabs', app: SAFARI }, { action: 'sleep', duration: TAB_CLOSE_SETTLE_S }])
   await session.open(`http://localhost:${port}/case/${caseName}?report=${referenceReportId(values.ios, caseName, stem)}&t=${Date.now()}`)
   await sleep(LOAD_SETTLE_MS)
   const { x: midX, y: midY } = GESTURE_CENTER[orientation]
