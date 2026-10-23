@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node: [22, 24]
+        node: [22, 24, 26]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -30,16 +30,28 @@ jobs:
       - run: npm pack --dry-run
       - run: node dist/cli.js --version
 
+  playwright:
+    name: Playwright version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.lock.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: lock
+        run: echo "version=$(node -p 'require("./package-lock.json").packages["node_modules/playwright"].version')" >> "$GITHUB_OUTPUT"
+
   test:
     name: Test
+    needs: playwright
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 60
+    # The image ships WebKit and its system libraries for this exact Playwright version; apt installs take 20+ minutes.
+    container: mcr.microsoft.com/playwright:v${{ needs.playwright.outputs.version }}-noble
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 24
+          node-version: lts/*
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps webkit
       - run: npm test
