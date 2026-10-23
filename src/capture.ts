@@ -327,7 +327,8 @@ function meanColorOver(rgba: Uint8Array, background: Rgba): Rgba {
 // Screenshots right after scrollTo can show the previous frame on a slow host; two frames let the compositor catch up.
 async function scrollToY(page: Page, y: number) {
   return page.evaluate(async target => {
-    scrollTo(0, target)
+    // x86-64 WebKit ignores scroll offsets near Number.MAX_SAFE_INTEGER instead of clamping them.
+    scrollTo(0, Math.min(target, document.documentElement.scrollHeight))
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
     return scrollY
   }, y)
