@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
-import { webkit, chromium, type Browser } from 'playwright'
+import { spawn } from 'node:child_process'
+import { once } from 'node:events'
+import { fileURLToPath } from 'node:url'
+import { webkit, chromium, type Browser, type BrowserType } from 'playwright'
 import { DEVICES, DEFAULT_DEVICE_ID, findDevice, modeledOrientations } from './devices.ts'
 import { SCROLL_STATES, THEMES, ORIENTATIONS, MODES, IOS_VERSIONS, DEFAULT_IOS, scenarioStem, type IosVersion, type Scenario } from './scenario.ts'
 import { takeShot, type ShotReport } from './shot.ts'
@@ -31,7 +34,10 @@ Options:
       --engine <name>       webkit or chromium (default: webkit)
       --out <dir>           Output directory (default: ./${DEFAULT_OUT_DIR})
       --list-devices        Print device presets as JSON and exit
-  -h, --help                Show this help`
+  -v, --version             Print the version and exit
+  -h, --help                Show this help
+
+The first run downloads Playwright's browser build (about 100 MB) if it is missing.`
 
 interface ManifestEntry {
   readonly png: string
@@ -59,10 +65,12 @@ async function main() {
       engine: { type: 'string', default: 'webkit' },
       out: { type: 'string', default: DEFAULT_OUT_DIR },
       'list-devices': { type: 'boolean', default: false },
+      version: { type: 'boolean', short: 'v', default: false },
       help: { type: 'boolean', short: 'h', default: false },
     },
   })
   if (values.help) return console.log(USAGE)
+  if (values.version) return console.log(await packageVersion())
   if (values['list-devices']) return console.log(JSON.stringify(DEVICES, null, 2))
   if (!positionals.length) throw new UsageError('at least one URL is required')
   const urls = positionals.map(normalizeUrl)
@@ -148,10 +156,35 @@ function slug(url: string) {
   return `${hostname || 'file'}${pathname}`.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').slice(0, 80) || 'page'
 }
 
+async function packageVersion(): Promise<string> {
+  const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }
+  return manifest.version
+}
+
 async function launch(engine: string): Promise<Browser> {
-  if (engine === 'webkit') return webkit.launch()
-  if (engine === 'chromium') return chromium.launch()
-  throw new UsageError(`unknown engine "${engine}"; allowed: webkit, chromium`)
+  const browserType = ENGINES[engine]
+  if (!browserType) throw new UsageError(`unknown engine "${engine}"; allowed: ${Object.keys(ENGINES).join(', ')}`)
+  try {
+    return await browserType.launch()
+  } catch (error) {
+    if (!(error instanceof Error && error.message.includes(MISSING_BROWSER))) throw error
+    await installBrowser(engine)
+    return browserType.launch()
+  }
+}
+
+const ENGINES: Readonly<Record<string, BrowserType>> = { webkit, chromium }
+
+// Playwright's launch error when the browser build for this Playwright version is not downloaded.
+const MISSING_BROWSER = "Executable doesn't exist"
+
+// The bundled Playwright CLI installs the build matching the library; `npx playwright` may resolve another version.
+async function installBrowser(engine: string) {
+  console.error(`safari-shot: downloading Playwright ${engine}; this happens once`)
+  const playwrightCli = fileURLToPath(new URL('cli.js', import.meta.resolve('playwright/package.json')))
+  const installer = spawn(process.execPath, [playwrightCli, 'install', engine], { stdio: ['ignore', 2, 2] })
+  const [code] = await once(installer, 'exit') as [number | null]
+  if (code !== 0) throw new Error(`playwright install ${engine} exited with ${code}; on Linux, run: npx playwright install --with-deps ${engine}`)
 }
 
 main().catch(error => {
