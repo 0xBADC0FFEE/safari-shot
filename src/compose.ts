@@ -1,8 +1,8 @@
 import type { Browser } from 'playwright'
 import { toCss, type Rgba } from './color.ts'
 import type { PageCapture, Band } from './capture.ts'
-import type { PanelPlan, ScrollPocket } from './model.ts'
-import { CHROME_26, type Chrome26, type GlassVariant } from './chrome.ts'
+import type { PanelPlan, Safari18Plan, Safari26Plan, ScrollPocket } from './model.ts'
+import { CHROME_18, CHROME_26, type Chrome26, type GlassVariant, type Material } from './chrome.ts'
 import type { DevicePreset, StatusBarLayout } from './devices.ts'
 
 export interface ComposeInput {
@@ -66,22 +66,32 @@ function imageAssets({ images }: PageCapture): [string, Buffer][] {
  * @param input capture, panel plan and device
  * @returns HTML for the compositor page
  */
-export function composeHtml({ capture, plan, device, hostLabel }: ComposeInput): string {
-  const { layout, images } = capture
+export function composeHtml(input: ComposeInput): string {
+  const { plan } = input
+  return plan.safari === '26' ? composeHtml26(input, plan) : composeHtml18(input, plan)
+}
+
+function content({ layout, images }: PageCapture, underPageBackground: Rgba) {
   const { screen, obscured } = layout
-  const chrome = CHROME_26
-  const contentLeft = obscured.left
   const viewportWidth = screen.width - obscured.left - obscured.right
   const img = (path: string, top: number, height: number) =>
-    `<img src="${path}" decoding="sync" style="position:absolute;left:${contentLeft}px;top:${top}px;width:${viewportWidth}px;height:${height}px">`
+    `<img src="${path}" decoding="sync" style="position:absolute;left:${obscured.left}px;top:${top}px;width:${viewportWidth}px;height:${height}px">`
   const band = (path: string, b: Band | null) => b ? img(path, b.top, b.height) : ''
-
-  const topPocketColor = plan.fills.top?.kind === 'extension' ? plan.fills.top.color : plan.underPageBackground
-  const under = [
-    `<div style="position:absolute;inset:0;background:${toCss(plan.underPageBackground)}"></div>`,
+  return [
+    `<div style="position:absolute;inset:0;background:${toCss(underPageBackground)}"></div>`,
     band('/above.png', images.above),
     img('/viewport.png', layout.viewportTop, layout.viewportHeight),
     band('/below.png', images.below),
+  ].join('')
+}
+
+function composeHtml26({ capture, device, hostLabel }: ComposeInput, plan: Safari26Plan): string {
+  const { layout } = capture
+  const { screen, obscured } = layout
+  const chrome = CHROME_26
+  const topPocketColor = plan.fills.top?.kind === 'extension' ? plan.fills.top.color : plan.underPageBackground
+  const under = [
+    content(capture, plan.underPageBackground),
     extension(plan.fills.top, 0, obscured.top + plan.topExtensionGrowth, screen.width),
     extension(plan.fills.bottom, screen.height - obscured.bottom, obscured.bottom, screen.width),
     obscured.top > 0 ? topPocket(topPocketColor, screen.width, obscured.top, chrome) : '',
@@ -132,7 +142,7 @@ function glass(shape: GlassShape, under: string) {
   </div>`
 }
 
-function extension(fill: PanelPlan['fills']['top'], top: number, height: number, width: number) {
+function extension(fill: Safari26Plan['fills']['top'], top: number, height: number, width: number) {
   if (fill?.kind !== 'extension' || height <= 0) return ''
   return `<div style="position:absolute;left:0;top:${top}px;width:${width}px;height:${height}px;background:${toCss(fill.color)}"></div>`
 }
@@ -155,6 +165,91 @@ function bottomPocket(pocket: ScrollPocket, screen: { width: number, height: num
 
 function rgba(color: Rgba, alpha: number) {
   return toCss({ ...color, a: alpha })
+}
+
+function composeHtml18({ capture, device, hostLabel }: ComposeInput, plan: Safari18Plan): string {
+  const { screen, obscured } = capture.layout
+  const chrome = CHROME_18
+  const material = chrome.material[plan.material]
+  const under = content(capture, plan.underPageBackground)
+  const barTop = screen.height - obscured.bottom
+  const hasHomeIndicator = device.safeArea.portrait.bottom > 0
+  const toolbar = plan.toolbar === 'expanded'
+    ? expandedToolbar18(screen, barTop, under, hostLabel, material, hasHomeIndicator)
+    : collapsedBar18(screen, barTop, plan, hostLabel, hasHomeIndicator)
+  return `<!doctype html><html><head><meta charset="utf-8"><style>
+    html, body { margin: 0; width: ${screen.width}px; height: ${screen.height}px; overflow: hidden; }
+    body { position: relative; font-family: ${chrome.fontFamily}; -webkit-font-smoothing: antialiased; }
+    .layer { position: absolute; left: 0; top: 0; width: ${screen.width}px; height: ${screen.height}px; overflow: hidden; }
+  </style></head><body>
+    ${materialFilter(material)}
+    <div class="layer">${under}</div>
+    <div style="position:absolute;left:0;top:0;width:${screen.width}px;height:${obscured.top}px;background:${toCss(plan.tint.color)}"></div>
+    ${plan.refreshControl ? spinner(screen.width / 2, obscured.top + chrome.refreshSpinner.offsetTop, plan.statusBar) : ''}
+    ${statusBar(screen.width, plan.statusBar, device.statusBar)}
+    ${toolbar}
+  </body></html>`
+}
+
+function materialFilter(material: Material) {
+  const channel = (name: string) => `<feFunc${name} type="linear" slope="${material.scale}" intercept="${material.offset}"/>`
+  return `<svg width="0" height="0" style="position:absolute"><filter id="material" color-interpolation-filters="sRGB">
+    <feGaussianBlur stdDeviation="${material.blur}" edgeMode="duplicate"/><feColorMatrix type="saturate" values="${material.saturation}"/>
+    <feComponentTransfer>${['R', 'G', 'B'].map(channel).join('')}</feComponentTransfer></filter></svg>`
+}
+
+function expandedToolbar18(screen: { width: number, height: number }, top: number, under: string, hostLabel: string, material: Material, hasHomeIndicator: boolean) {
+  const { urlField: field, buttonRow, tint } = CHROME_18
+  const fieldWidth = screen.width - 2 * field.sideMargin
+  const buttons = toolbarButtons18(tint, material.disabledInk)
+  const step = (screen.width - 2 * buttonRow.sideInset) / (buttons.length - 1)
+  const button = (svg: string, i: number) =>
+    `<div style="position:absolute;left:${buttonRow.sideInset + i * step - BUTTON_BOX / 2}px;top:${buttonRow.centerY - BUTTON_BOX / 2}px;width:${BUTTON_BOX}px;height:${BUTTON_BOX}px;display:flex;align-items:center;justify-content:center">${svg}</div>`
+  return `<div style="position:absolute;left:0;top:${top}px;width:${screen.width}px;height:${screen.height - top}px;overflow:hidden">
+    <div class="layer" style="top:${-top}px;filter:url(#material)">${under}</div>
+    ${hairline(screen.width)}
+    <div style="position:absolute;left:${field.sideMargin}px;top:${field.top}px;width:${fieldWidth}px;height:${field.height}px;border-radius:${field.radius}px;background:${material.fieldFill};box-shadow:${field.shadow};display:flex;align-items:center;justify-content:center">
+      <svg style="position:absolute;left:14px;top:${field.height / 2 - 9}px" width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="${material.ink}" stroke-width="1.6" stroke-linecap="round">
+        <rect x="2" y="1.5" width="14" height="8.5" rx="2"/><path d="M2 13.2h14M2 16.4h9"/></svg>
+      <span style="font-size:${field.fontSize}px;color:${material.ink};letter-spacing:-0.3px;white-space:nowrap;max-width:${fieldWidth - 90}px;overflow:hidden;text-overflow:ellipsis">${escapeHtml(hostLabel)}</span>
+      <svg style="position:absolute;right:14px;top:${field.height / 2 - 10}px" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="${material.ink}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M15.6 7.2A6.6 6.6 0 1 0 16.6 11"/><path d="M16.2 2.6v4.8h-4.8"/></svg>
+    </div>
+    ${buttons.map(button).join('')}
+    ${hasHomeIndicator ? homeIndicator(screen, top, material.ink) : ''}
+  </div>`
+}
+
+const BUTTON_BOX = 30
+
+function toolbarButtons18(tint: string, disabledInk: string) {
+  const icon = (color: string, path: string) => `<svg width="26" height="26" viewBox="0 0 26 26" fill="none" stroke="${color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${path}</svg>`
+  return [
+    icon(disabledInk, '<path d="M16 4 7 13l9 9"/>'),
+    icon(disabledInk, '<path d="M10 4l9 9-9 9"/>'),
+    icon(tint, '<path d="M13 3v13M8.5 7.5 13 3l4.5 4.5M9 11H6.5v12h13V11H17"/>'),
+    icon(tint, '<path d="M13 6.5C10.8 4.8 7.5 4.3 3.5 5v15c4-.7 7.3-.2 9.5 1.5 2.2-1.7 5.5-2.2 9.5-1.5V5c-4-.7-7.3-.2-9.5 1.5zM13 6.5v15"/>'),
+    icon(tint, '<rect x="8" y="8" width="14" height="14" rx="3"/><path d="M18 4H7a3 3 0 0 0-3 3v11"/>'),
+  ]
+}
+
+function collapsedBar18(screen: { width: number, height: number }, top: number, plan: Safari18Plan, hostLabel: string, hasHomeIndicator: boolean) {
+  const bar = CHROME_18.collapsedBar
+  const ink = glyphColor(plan.bottomBarInk)
+  return `<div style="position:absolute;left:0;top:${top}px;width:${screen.width}px;height:${screen.height - top}px;background:${rgba(plan.bottomBar, bar.opacity)}">
+    ${hairline(screen.width)}
+    <div style="position:absolute;left:0;right:0;top:${bar.textCenterY - bar.fontSize}px;height:${2 * bar.fontSize}px;line-height:${2 * bar.fontSize}px;text-align:center;font-size:${bar.fontSize}px;color:${ink}">${escapeHtml(hostLabel)}</div>
+    ${hasHomeIndicator ? homeIndicator(screen, top, ink) : ''}
+  </div>`
+}
+
+function hairline(width: number) {
+  return `<div style="position:absolute;left:0;top:0;width:${width}px;height:0.33px;background:${CHROME_18.separator}"></div>`
+}
+
+function homeIndicator(screen: { width: number, height: number }, barTop: number, color: string) {
+  const h = CHROME_18.homeIndicator
+  return `<div style="position:absolute;left:${(screen.width - h.width) / 2}px;top:${screen.height - barTop - h.bottomMargin - h.height}px;width:${h.width}px;height:${h.height}px;border-radius:${h.height / 2}px;background:${color}"></div>`
 }
 
 function glyphColor(style: PanelPlan['statusBar']) {

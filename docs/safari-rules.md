@@ -83,6 +83,26 @@ dark glass, `#003f7f` light. Over a container's color extension, and over the de
 24 % white is mixed into the fill; over a `::backdrop` extension it is not. The pills cast a shadow
 of about 0 11 px 42 px at 16 % black. [sim]
 
+## iOS 18 (simplified model)
+
+Observed on the iOS 18.6 Simulator, iPhone 16 Pro, portrait, light appearance. [sim]
+
+| | value |
+|---|---|
+| Status bar band | 62 pt, solid: `theme-color`, else the sampled page top, else the under-page color, in every scroll state |
+| Toolbar, expanded | 134 pt: URL field 28–374 × 748–793 (radius 12) over a five-button row, then the home indicator |
+| Toolbar, collapsed | 52 pt: host name over the bottom-edge content color at 86 % |
+| Layout viewport | 678 expanded, 760 collapsed |
+
+- **Sampled page top** (`PageColorSampler::sampleTop`): five samples at y = 0 must agree with each
+  other and with the samples 100 pt lower (Safari's thresholds are private; a 300 pt hero is sampled,
+  a 56 pt fixed bar and a 40 pt `html` margin are not), and no image, canvas, iframe or animation may
+  sit under them.
+- **Glyphs** are white when the band's luma is ≤ 0.55 (`#808080` at 0.50 gets white, `#ff7f7f` at 0.61 black).
+- **Material**: blurred content, saturate 0.775, ×0.422, +0.717 (RMSE 4.2 over solid colors); the URL
+  field is 82 % white over it. The dark material is not calibrated.
+- Other devices assume the same toolbar above their home-indicator inset; landscape is not modeled.
+
 ## Known gaps
 
 - Fonts: Safari renders with SF Pro; Playwright WebKit on Linux falls back to other fonts, so text
@@ -92,3 +112,6 @@ of about 0 11 px 42 px at 16 % black. [sim]
 - The top pocket on devices other than the iPhone 17 Pro is scaled to their status bar inset, unmeasured.
 - Status bar glyphs over mixed content near the 0.39 switch can come out wrong
   (`html-body-colors`, scrolled: Safari white, model black).
+- iOS 18 status band: Safari ignores full-screen overlays and backdrops (`fixed-overlay-full`,
+  `dialog-modal`, `popover`), and tints with some fixed top bars (`fixed-both`, `fixed-pointer-none`)
+  but not others (`fixed-top`); the model samples what it sees.

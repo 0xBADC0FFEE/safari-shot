@@ -2,9 +2,9 @@ import type { Browser, BrowserContext, Page } from 'playwright'
 import sharp from 'sharp'
 import { probePage, SIDES, type PageFacts, type Side, type ClientRect } from './page-probe.ts'
 import { resolveEdge, predominantColor, NO_EDGES, type FixedEdges, type PredominantColor } from './edges.ts'
-import { blendSourceOver, isVisible, WHITE, BLACK, type Rgba } from './color.ts'
-import { screenSize, type DevicePreset, type Insets, type SafariGeometry } from './devices.ts'
-import type { Scenario } from './scenario.ts'
+import { blendSourceOver, deltaE76, fromLab, isVisible, toLab, WHITE, BLACK, type Rgba } from './color.ts'
+import { safariGeometry, screenSize, type DevicePreset, type Insets, type SafariGeometry } from './devices.ts'
+import type { IosVersion, Scenario } from './scenario.ts'
 
 export const IOS_SAFARI_USER_AGENT = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Mobile/15E148 Safari/604.1'
 // PageColorSampler::sampleTop takes this many samples along y=0
@@ -12,10 +12,15 @@ const EDGE_SAMPLE_COUNT = 5
 const HIDE_ATTRIBUTE = 'data-safari-shot-hide'
 const LAYER_ATTRIBUTE = 'data-safari-shot-layer'
 const SETTLE_AFTER_SCROLL_MS = 250
+// Safari's _sampledPageTopColorMaxDifference and _sampledPageTopColorMinHeight are private. iOS 18.6 references bound
+// the height: a 300 pt hero is sampled, a 56 pt fixed bar and a 40 pt html margin above the body are not.
+const TOP_SAMPLE_MAX_DIFFERENCE = 5
+const TOP_SAMPLE_MIN_HEIGHT = 100
 
 export interface CaptureRequest {
   readonly url: string
   readonly device: DevicePreset
+  readonly ios: IosVersion
   readonly scenario: Scenario
   /** Document scroll offset for the `scrolled` state, in CSS px. */
   readonly scrollY: number
@@ -52,6 +57,8 @@ export interface PageCapture {
   readonly contentUnderToolbar: Rgba
   /** Predominant color of the page content along the screen's bottom edge; the bottom scroll pocket uses it. */
   readonly contentBottomEdge: PredominantColor
+  /** `PageColorSampler::sampleTop` at load: the page's top color when the top band is uniform and plain. */
+  readonly sampledPageTopColor: Rgba | null
   /** PNGs at device scale: the layout viewport, and document content above and below it. */
   readonly images: {
     readonly viewport: Buffer
@@ -83,7 +90,7 @@ export interface WebAppManifest {
 export async function capturePage(browser: Browser, request: CaptureRequest): Promise<PageCapture> {
   const { device, scenario } = request
   const screen = screenSize(device, scenario.orientation)
-  const geometry = device.safari26[scenario.orientation]
+  const geometry = safariGeometry(device, request.ios, scenario.orientation)
   const toolbar = request.toolbar ?? (scenario.state === 'scrolled' ? 'collapsed' : 'expanded')
   const viewportFor = (insets: Insets) => ({ width: screen.width - insets.left - insets.right, height: screen.height - insets.top - insets.bottom })
   const largeViewport = viewportFor(geometry.obscured.collapsed)
@@ -106,6 +113,7 @@ export async function capturePage(browser: Browser, request: CaptureRequest): Pr
     const factsAtLoad = await probe()
     const pageBackgroundAtLoad = underPageBackground(factsAtLoad, scenario.theme)
     const edgesAtLoad = await resolveEdges(page, factsAtLoad, pageBackgroundAtLoad, NO_EDGES)
+    const sampledPageTopColor = factsAtLoad.sampleInvalid.top.some(reason => reason !== null) ? null : await sampleTop(page, factsAtLoad.viewport)
 
     if (toolbar === 'collapsed') await page.setViewportSize(largeViewport)
     const targetScroll = scenario.state === 'scrolled' ? request.scrollY : scenario.state === 'overscroll-bottom' ? Number.MAX_SAFE_INTEGER : 0
@@ -137,6 +145,7 @@ export async function capturePage(browser: Browser, request: CaptureRequest): Pr
         ? content.rows(0, layout.obscured.top)
         : content.rows(layout.screen.height - layout.obscured.bottom, layout.screen.height), pageBackground),
       contentBottomEdge: predominantColor(content.rows(layout.screen.height - BOTTOM_EDGE_STRIP_PT, layout.screen.height)),
+      sampledPageTopColor,
     }
   } finally {
     await context.close()
@@ -206,6 +215,25 @@ async function sampleFixedLayers(page: Page, rect: ClientRect): Promise<Predomin
   } finally {
     await page.evaluate(id => document.getElementById(id)?.remove(), styleId)
   }
+}
+
+// WebKit allows one outlier among the edge samples; this keeps the stricter rule that every sample agrees.
+async function sampleTop(page: Page, viewport: PageFacts['viewport']): Promise<Rgba | null> {
+  const height = Math.min(TOP_SAMPLE_MIN_HEIGHT, viewport.height)
+  const png = await page.screenshot({ clip: { x: 0, y: 0, width: viewport.width, height }, animations: 'disabled', caret: 'hide' })
+  const { data, info } = await sharp(png).removeAlpha().raw().toBuffer({ resolveWithObject: true })
+  const at = (fraction: number, y: number): Rgba => {
+    const i = (y * info.width + Math.min(info.width - 1, Math.round(fraction * info.width))) * info.channels
+    return { r: data[i]!, g: data[i + 1]!, b: data[i + 2]!, a: 1 }
+  }
+  const fractions = Array.from({ length: EDGE_SAMPLE_COUNT }, (_, i) => i / (EDGE_SAMPLE_COUNT - 1))
+  const top = fractions.map(f => at(f, 0))
+  const deeper = fractions.map(f => at(f, info.height - 1))
+  const similar = (x: Rgba, y: Rgba) => deltaE76(x, y) <= TOP_SAMPLE_MAX_DIFFERENCE
+  if (!top.every((color, i) => similar(color, top[0]!) && similar(color, deeper[i]!))) return null
+  const labs = top.map(toLab)
+  const mean = (key: 'l' | 'a' | 'b') => labs.reduce((sum, lab) => sum + lab[key], 0) / labs.length
+  return fromLab({ l: mean('l'), a: mean('a'), b: mean('b') })
 }
 
 async function captureImages(page: Page, layout: PageLayout, facts: PageFacts): Promise<PageCapture['images']> {

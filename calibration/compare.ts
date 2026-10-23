@@ -9,7 +9,7 @@ import { contactSheet } from './contact-sheet.ts'
 import { takeShot, type ShotReport } from '../src/shot.ts'
 import { findDevice } from '../src/devices.ts'
 import { deltaE76, parseSimpleColor, relativeLuminance, toHex, type Rgba } from '../src/color.ts'
-import type { Scenario, ScrollState } from '../src/scenario.ts'
+import { IOS_VERSIONS, type IosVersion, type Scenario, type ScrollState } from '../src/scenario.ts'
 
 const REFERENCES_DIR = join(import.meta.dirname, 'references')
 const OUTPUT_DIR = join(import.meta.dirname, 'out', 'compare')
@@ -34,6 +34,7 @@ type StatusBarStyle = 'dark-content' | 'light-content'
 
 /** What one Simulator reference shows in the panel regions, plus how to replay it. */
 export interface Expectation {
+  readonly ios: IosVersion
   readonly name: string
   readonly stem: string
   readonly scrollY: number
@@ -67,15 +68,17 @@ if (import.meta.main) {
       sheets: { type: 'boolean', default: false },
     },
   })
+  const ios = IOS_VERSIONS.find(v => v === values.ios)
+  if (!ios) throw new Error(`--ios must be one of ${IOS_VERSIONS.join(', ')}`)
   const renderer = await startRenderer()
   try {
     const filter = { cases: values.cases?.split(','), states: values.states?.split(',') as ScrollState[] | undefined }
-    const expectations = await buildExpectations(renderer, values.ios, filter)
+    const expectations = await buildExpectations(renderer, ios, filter)
     if (!filter.cases && !filter.states) {
       await mkdir(EXPECTATIONS_DIR, { recursive: true })
       await writeFile(join(EXPECTATIONS_DIR, `ios${values.ios}.json`), JSON.stringify(expectations, null, 1))
     }
-    const results = await checkExpectations(renderer, expectations, { sheets: values.sheets ? values.ios : undefined })
+    const results = await checkExpectations(renderer, expectations, { sheets: values.sheets })
     printTable(results)
     await mkdir(OUTPUT_DIR, { recursive: true })
     await writeFile(join(OUTPUT_DIR, 'summary.json'), JSON.stringify(results, null, 2))
@@ -116,7 +119,7 @@ export async function startRenderer(): Promise<Renderer> {
  * @param filter optional case and state restriction
  * @returns one expectation per reference image
  */
-export async function buildExpectations(renderer: Renderer, ios: string, filter: { cases?: string[], states?: ScrollState[] } = {}): Promise<Expectation[]> {
+export async function buildExpectations(renderer: Renderer, ios: IosVersion, filter: { cases?: string[], states?: ScrollState[] } = {}): Promise<Expectation[]> {
   const root = join(REFERENCES_DIR, `ios${ios}`)
   const expectations: Expectation[] = []
   for (const name of (await readdir(root)).sort()) {
@@ -125,11 +128,11 @@ export async function buildExpectations(renderer: Renderer, ios: string, filter:
       const stem = basename(file, '.png')
       if (filter.states && !filter.states.includes(parseStem(stem).scenario.state)) continue
       const replay = await readReplay(ios, name, stem)
-      const { report } = await render(renderer, name, stem, replay)
+      const { report } = await render(renderer, ios, name, stem, replay)
       const reference = await rawImage(await readFile(join(root, name, file)))
       const scale = report.device.scale
       expectations.push({
-        name, stem, ...replay,
+        ios, name, stem, ...replay,
         regions: regionsFor(report).map(region => ({ ...region, color: toHex(meanColor(reference, region, scale)) })),
         statusBar: glyphStyle(reference, TIME_BOX, scale),
       })
@@ -142,13 +145,13 @@ export async function buildExpectations(renderer: Renderer, ios: string, filter:
  * Renders every expectation with safari-shot and compares the panel regions.
  * @param renderer browser and corpus server
  * @param expectations recorded reference colors
- * @param options `sheets`: iOS version whose references to put next to ours in review PNGs
+ * @param options `sheets`: also write review PNGs with the reference next to ours
  * @returns one result per expectation
  */
-export async function checkExpectations(renderer: Renderer, expectations: readonly Expectation[], options: { sheets?: string } = {}): Promise<CaseResult[]> {
+export async function checkExpectations(renderer: Renderer, expectations: readonly Expectation[], options: { sheets?: boolean } = {}): Promise<CaseResult[]> {
   const results: CaseResult[] = []
   for (const expectation of expectations) {
-    const { png } = await render(renderer, expectation.name, expectation.stem, expectation)
+    const { png } = await render(renderer, expectation.ios, expectation.name, expectation.stem, expectation)
     const scale = findDevice(parseStem(expectation.stem).deviceId).scale
     const ours = await rawImage(png)
     const regions = expectation.regions.map(region => {
@@ -161,11 +164,11 @@ export async function checkExpectations(renderer: Renderer, expectations: readon
     const statusBar = { reference: expectation.statusBar, ours: ourStyle, pass: ourStyle === expectation.statusBar }
     results.push({ name: expectation.name, stem: expectation.stem, regions, statusBar, pass: statusBar.pass && regions.every(r => r.pass) })
     if (options.sheets) {
-      const outDir = join(OUTPUT_DIR, expectation.name)
+      const outDir = join(OUTPUT_DIR, `ios${expectation.ios}`, expectation.name)
       await mkdir(outDir, { recursive: true })
       const oursPath = join(outDir, `${expectation.stem}.ours.png`)
       await writeFile(oursPath, png)
-      await contactSheet(join(outDir, `${expectation.stem}.sheet.png`), 402, [join(REFERENCES_DIR, `ios${options.sheets}`, expectation.name, `${expectation.stem}.png`), oursPath])
+      await contactSheet(join(outDir, `${expectation.stem}.sheet.png`), 402, [join(REFERENCES_DIR, `ios${expectation.ios}`, expectation.name, `${expectation.stem}.png`), oursPath])
     }
   }
   return results
@@ -176,23 +179,23 @@ function parseStem(stem: string) {
   return { deviceId, scenario: { state, theme, orientation, mode: 'browser' } satisfies Scenario }
 }
 
-async function render({ browser, origin }: Renderer, name: string, stem: string, replay: { scrollY: number, toolbar: 'expanded' | 'collapsed' }): Promise<{ png: Buffer, report: ShotReport }> {
+async function render({ browser, origin }: Renderer, ios: IosVersion, name: string, stem: string, replay: { scrollY: number, toolbar: 'expanded' | 'collapsed' }): Promise<{ png: Buffer, report: ShotReport }> {
   const { deviceId, scenario } = parseStem(stem)
   return takeShot(browser, {
     url: `${origin}/case/${name}`,
-    device: findDevice(deviceId), scenario, settleMs: SETTLE_MS, overscroll: DEFAULT_OVERSCROLL_PT,
+    device: findDevice(deviceId), ios, scenario, settleMs: SETTLE_MS, overscroll: DEFAULT_OVERSCROLL_PT,
     scrollY: replay.scrollY, toolbar: replay.toolbar,
   })
 }
 
-async function readReplay(ios: string, name: string, stem: string): Promise<{ scrollY: number, toolbar: 'expanded' | 'collapsed' }> {
-  const fallback = { scrollY: 0, toolbar: parseStem(stem).scenario.state === 'scrolled' ? 'collapsed' as const : 'expanded' as const }
+async function readReplay(ios: IosVersion, name: string, stem: string): Promise<{ scrollY: number, toolbar: 'expanded' | 'collapsed' }> {
+  const toolbarByState = parseStem(stem).scenario.state === 'scrolled' ? 'collapsed' as const : 'expanded' as const
   try {
     const states = JSON.parse(await readFile(join(REPORTS_DIR, `${referenceReportId(ios, name, stem)}.json`), 'utf8')) as { inner: [number, number], scrollY: number }[]
     const last = states.at(-1)!
     return { scrollY: last.scrollY, toolbar: last.inner[1] > states[0]!.inner[1] ? 'collapsed' : 'expanded' }
   } catch {
-    return fallback
+    return { scrollY: 0, toolbar: toolbarByState }
   }
 }
 
@@ -201,6 +204,7 @@ function regionsFor(report: ShotReport): Region[] {
   const top = report.layout.obscuredInsets.top!
   const bottom = report.layout.obscuredInsets.bottom!
   const statusGap = { name: 'status-band', x: 120, y: 2, width: 150, height: top - 4, tolerance: 3 }
+  if (report.safari === '18') return regions18(report, top, height - bottom)
   // The rubber-band distance of a simulator gesture is not reproducible; only an extension makes the band comparable.
   if (report.scenario.state === 'overscroll-bottom') return report.panels.top?.fill === 'extension' ? [statusGap] : []
   if (report.scenario.state === 'overscroll-top') return [statusGap]
@@ -217,6 +221,20 @@ function regionsFor(report: ShotReport): Region[] {
     statusGap,
     { name: 'bottom-left-edge', x: 0, y: height - bottom, width: 140, height: bottom, tolerance: 4 },
     { name: 'glass-collapsed', x: 161, y: 834, width: 8, height: 18, tolerance: 6 },
+  ]
+}
+
+// Clear of the clock, the Dynamic Island, the URL field's icons and text, the button row, and the home indicator.
+function regions18(report: ShotReport, top: number, toolbarTop: number): Region[] {
+  const statusBand = { name: 'status-band', x: 112, y: 2, width: 24, height: top - 4, tolerance: 3 }
+  // The rubber-band distance of a simulator gesture is not reproducible, and the toolbar material shows what it uncovers.
+  if (report.scenario.state.startsWith('overscroll')) return [statusBand]
+  if (report.layout.toolbar === 'collapsed') return [statusBand, { name: 'collapsed-bar', x: 10, y: toolbarTop + 4, width: 100, height: 44, tolerance: 4 }]
+  return [
+    statusBand,
+    { name: 'url-field', x: 80, y: toolbarTop + 12, width: 50, height: 8, tolerance: 4 },
+    // The material fit has RMSE 4.2 over solid colors.
+    { name: 'material', x: 50, y: toolbarTop + 96, width: 50, height: 14, tolerance: 9 },
   ]
 }
 

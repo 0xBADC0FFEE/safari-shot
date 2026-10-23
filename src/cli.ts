@@ -3,8 +3,8 @@ import { parseArgs } from 'node:util'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { webkit, chromium, type Browser } from 'playwright'
-import { DEVICES, DEFAULT_DEVICE_ID, findDevice } from './devices.ts'
-import { SCROLL_STATES, THEMES, ORIENTATIONS, MODES, scenarioStem, type Scenario } from './scenario.ts'
+import { DEVICES, DEFAULT_DEVICE_ID, findDevice, modeledOrientations } from './devices.ts'
+import { SCROLL_STATES, THEMES, ORIENTATIONS, MODES, IOS_VERSIONS, scenarioStem, type IosVersion, type Scenario } from './scenario.ts'
 import { takeShot, type ShotReport } from './shot.ts'
 
 const DEFAULT_SCROLL_PX = 400
@@ -14,12 +14,13 @@ const DEFAULT_OUT_DIR = 'safari-shots'
 
 const USAGE = `Usage: safari-shot <url...> [options]
 
-Screenshots of pages as iOS 26 Safari shows them on iPhone, including what is painted
-under the status bar and the toolbar. Writes <out>/<page>/<device>.<orientation>.<theme>.<state>.png
+Screenshots of pages as Safari shows them on iPhone, including what is painted under the
+status bar and the toolbar. Writes <out>/<page>/ios<version>/<device>.<orientation>.<theme>.<state>.png
 plus a .json report next to each PNG, and prints a JSON manifest to stdout.
 
 Options:
   -d, --device <ids>        Device presets, comma-separated, or "all" (default: ${DEFAULT_DEVICE_ID})
+      --ios <versions>      ${IOS_VERSIONS.join(', ')} or "all"; 18 is a simplified, portrait-only model (default: 26)
   -s, --state <states>      ${SCROLL_STATES.join(', ')} or "all" (default: initial)
   -t, --theme <themes>      ${THEMES.join(', ')} or "all" (default: light)
   -o, --orientation <list>  ${ORIENTATIONS.join(', ')} (default: portrait)
@@ -37,6 +38,7 @@ interface ManifestEntry {
   readonly json: string
   readonly url: string
   readonly device: string
+  readonly ios: IosVersion
   readonly scenario: Scenario
   readonly panels: ShotReport['panels']
 }
@@ -46,6 +48,7 @@ async function main() {
     allowPositionals: true,
     options: {
       device: { type: 'string', short: 'd', default: DEFAULT_DEVICE_ID },
+      ios: { type: 'string', default: '26' },
       state: { type: 'string', short: 's', default: 'initial' },
       theme: { type: 'string', short: 't', default: 'light' },
       orientation: { type: 'string', short: 'o', default: 'portrait' },
@@ -70,8 +73,12 @@ async function main() {
     orientation: pick(values.orientation, ORIENTATIONS, 'orientation'),
     mode: pick(values.mode, MODES, 'mode'),
   })
+  const iosVersions = pick(values.ios, IOS_VERSIONS, 'ios')
   for (const s of scenarios) {
     if (s.mode !== 'browser') throw new UsageError(`${s.mode} mode is not calibrated yet; use browser`)
+    for (const ios of iosVersions) {
+      if (!modeledOrientations(ios).includes(s.orientation)) throw new UsageError(`iOS ${ios} ${s.orientation} is not modeled; allowed: ${modeledOrientations(ios).join(', ')}`)
+    }
   }
   const numbers = {
     scrollY: nonNegative(values.scroll, 'scroll'),
@@ -84,16 +91,18 @@ async function main() {
   try {
     for (const rawUrl of positionals) {
       const url = normalizeUrl(rawUrl)
-      const pageDir = join(outDir, slug(url))
-      await mkdir(pageDir, { recursive: true })
-      for (const device of devices) {
-        for (const scenario of scenarios) {
-          const { png, report } = await takeShot(browser, { url, device, scenario, ...numbers })
-          const stem = join(pageDir, scenarioStem(device.id, scenario))
-          await writeFile(`${stem}.png`, png)
-          await writeFile(`${stem}.json`, JSON.stringify(report, null, 2))
-          manifest.push({ png: `${stem}.png`, json: `${stem}.json`, url, device: device.id, scenario, panels: report.panels })
-          console.error(`wrote ${stem}.png`)
+      for (const ios of iosVersions) {
+        const shotDir = join(outDir, slug(url), `ios${ios}`)
+        await mkdir(shotDir, { recursive: true })
+        for (const device of devices) {
+          for (const scenario of scenarios) {
+            const { png, report } = await takeShot(browser, { url, device, ios, scenario, ...numbers })
+            const stem = join(shotDir, scenarioStem(device.id, scenario))
+            await writeFile(`${stem}.png`, png)
+            await writeFile(`${stem}.json`, JSON.stringify(report, null, 2))
+            manifest.push({ png: `${stem}.png`, json: `${stem}.json`, url, device: device.id, ios, scenario, panels: report.panels })
+            console.error(`wrote ${stem}.png`)
+          }
         }
       }
     }

@@ -1,5 +1,6 @@
-import { BLACK, colorsAreSimilar, luma, parseSimpleColor, toHex, type Rgba } from './color.ts'
-import { hasFixedEdge, type FixedEdge } from './edges.ts'
+import { CHROME_18, type Material } from './chrome.ts'
+import { BLACK, blendSourceOver, colorsAreSimilar, isVisible, withAlpha, luma, parseSimpleColor, toHex, type Rgba } from './color.ts'
+import { hasFixedEdge, type FixedEdge, type PredominantColor } from './edges.ts'
 import { SIDES, type Side } from './page-probe.ts'
 import type { PageCapture } from './capture.ts'
 import type { Scenario } from './scenario.ts'
@@ -15,23 +16,55 @@ export interface ScrollPocket {
   readonly strength: number
 }
 
-export interface PanelPlan {
+export type PanelPlan = Safari26Plan | Safari18Plan
+
+export interface Safari26Plan {
+  readonly safari: '26'
   readonly underPageBackground: Rgba
   readonly fills: Readonly<Record<Side, InsetFill | null>>
   /** Extra height the top extension grows by while rubber-banding with the refresh control. */
   readonly topExtensionGrowth: number
-  readonly statusBar: 'dark-content' | 'light-content'
+  readonly statusBar: StatusBarStyle
   /** Liquid Glass switches to its dark variant over dark content. */
   readonly glass: 'light' | 'dark'
   /** Safari lightens the glass over a container's color extension and over the default dimming pocket, not over a ::backdrop. */
   readonly glassWhitened: boolean
   readonly toolbar: 'expanded' | 'collapsed'
   readonly refreshControl: boolean
-  readonly themeColor: { readonly color: Rgba | undefined, readonly source: string, readonly usedByPanels: false }
+  readonly themeColor: ThemeColorUse
+}
+
+/** Pre-Liquid Glass Safari: a solid tint behind the status bar and an opaque bottom toolbar. */
+export interface Safari18Plan {
+  readonly safari: '18'
+  readonly underPageBackground: Rgba
+  /** Fills the status bar band in every scroll state. */
+  readonly tint: { readonly color: Rgba, readonly source: 'theme-color' | 'sampled-top' | 'under-page', readonly reason: string }
+  /** The collapsed bar's color, laid over content. */
+  readonly bottomBar: Rgba
+  /** Approximate color of the toolbar's background as shown: material over content, or the collapsed bar over content. */
+  readonly toolbarColor: Rgba
+  readonly statusBar: StatusBarStyle
+  /** Ink of the collapsed bar's host name. */
+  readonly bottomBarInk: StatusBarStyle
+  readonly material: 'light' | 'dark'
+  readonly toolbar: 'expanded' | 'collapsed'
+  readonly refreshControl: boolean
+  readonly themeColor: ThemeColorUse
+}
+
+type StatusBarStyle = 'dark-content' | 'light-content'
+
+interface ThemeColorUse {
+  readonly color: Rgba | undefined
+  readonly source: string
+  readonly usedByPanels: boolean
 }
 
 // Fitted on iOS 26.5 Simulator: #795548 (0.359) and green-and-red content (0.38) get white glyphs, #2e7d32 (0.403) black.
 const LIGHT_CONTENT_MAX_LUMA = 0.39
+// iOS 18.6 Simulator: #808080 (0.502) gets white glyphs, #ff7f7f (0.605) black.
+const LIGHT_CONTENT_MAX_LUMA_18 = 0.55
 // Fitted on iOS 26.5 Simulator swatches: #333333 (0.200) gets dark glass, #003f7f (0.213) light.
 export const DARK_GLASS_MAX_LUMA = 0.206
 // Fitted on body-gradient: with no sampleable bottom color, content is dimmed to 74% at the bottom edge.
@@ -43,7 +76,7 @@ const DEFAULT_BOTTOM_POCKET: ScrollPocket = { color: BLACK, strength: 0.31 }
  * @param scenario scroll state, theme and orientation
  * @returns the panel plan to compose
  */
-export function planPanels(capture: PageCapture, scenario: Scenario): PanelPlan {
+export function planPanels(capture: PageCapture, scenario: Scenario): Safari26Plan {
   const { edges, underPageBackground, layout } = capture
   const underPagePocket: ScrollPocket = { color: underPageBackground, strength: 1 }
   const pockets: Record<Side, ScrollPocket> = { top: underPagePocket, left: underPagePocket, right: underPagePocket, bottom: bottomPocket(capture) }
@@ -55,10 +88,11 @@ export function planPanels(capture: PageCapture, scenario: Scenario): PanelPlan 
     : 0
   const behindStatusBar = topFill?.kind === 'extension' ? topFill.color : capture.contentUnderStatusBar
   return {
+    safari: '26',
     underPageBackground,
     fills,
     topExtensionGrowth,
-    statusBar: luma(behindStatusBar) <= LIGHT_CONTENT_MAX_LUMA ? 'light-content' : 'dark-content',
+    statusBar: glyphsOver(behindStatusBar, LIGHT_CONTENT_MAX_LUMA),
     glass: luma(toolbarFill?.kind === 'extension' ? toolbarFill.color : capture.contentUnderToolbar) <= DARK_GLASS_MAX_LUMA ? 'dark' : 'light',
     glassWhitened: toolbarFill?.kind === 'extension' ? !toolbarFill.fromDimmingLayer : toolbarFill?.kind === 'content' && toolbarFill.pocket === DEFAULT_BOTTOM_POCKET,
     toolbar: layout.toolbar,
@@ -67,11 +101,65 @@ export function planPanels(capture: PageCapture, scenario: Scenario): PanelPlan 
   }
 }
 
-// Like PageColorSampler::sampleTop, any image, canvas, iframe or animation under a sample point voids the sample.
+/**
+ * Decides what iOS 18 Safari paints: the tab-bar tint behind the status bar and the collapsed bar's color.
+ * @param capture captured page state
+ * @param scenario scroll state and theme
+ * @returns the panel plan to compose
+ */
+export function planPanels18(capture: PageCapture, scenario: Scenario): Safari18Plan {
+  const themeColor = activeThemeColor(capture, scenario)
+  const tint = tabBarTint(themeColor, capture)
+  const bottomEdge = bottomSample(capture)
+  const bottomBar = bottomEdge.kind === 'color' ? bottomEdge.color : capture.underPageBackground
+  const backdrop = capture.contentUnderToolbar
+  const toolbarColor = capture.layout.toolbar === 'expanded'
+    ? throughMaterial(backdrop, CHROME_18.material[scenario.theme])
+    : blendSourceOver(backdrop, withAlpha(bottomBar, CHROME_18.collapsedBar.opacity))
+  return {
+    safari: '18',
+    underPageBackground: capture.underPageBackground,
+    tint,
+    bottomBar,
+    toolbarColor,
+    statusBar: glyphsOver(tint.color, LIGHT_CONTENT_MAX_LUMA_18),
+    bottomBarInk: glyphsOver(bottomBar, LIGHT_CONTENT_MAX_LUMA_18),
+    material: scenario.theme,
+    toolbar: capture.layout.toolbar,
+    refreshControl: scenario.state === 'overscroll-top',
+    themeColor: { ...themeColor, usedByPanels: tint.source === 'theme-color' },
+  }
+}
+
+function tabBarTint(themeColor: { color: Rgba | undefined, source: string }, capture: PageCapture): Safari18Plan['tint'] {
+  if (themeColor.color && isVisible(themeColor.color)) return { color: themeColor.color, source: 'theme-color', reason: themeColor.source }
+  if (capture.sampledPageTopColor) return { color: capture.sampledPageTopColor, source: 'sampled-top', reason: 'the page top is one plain color' }
+  return { color: capture.underPageBackground, source: 'under-page', reason: 'no theme-color and the page top cannot be sampled; underPageBackgroundColor' }
+}
+
+// The compositor's SVG material filter, applied to one opaque color.
+function throughMaterial(color: Rgba, material: Material): Rgba {
+  const l = SATURATE_LUMA_WEIGHTS.r * color.r + SATURATE_LUMA_WEIGHTS.g * color.g + SATURATE_LUMA_WEIGHTS.b * color.b
+  const channel = (c: number) => Math.round(Math.min(255, Math.max(0, material.scale * (l + material.saturation * (c - l)) + material.offset * 255)))
+  return { r: channel(color.r), g: channel(color.g), b: channel(color.b), a: 1 }
+}
+
+// feColorMatrix type="saturate"
+const SATURATE_LUMA_WEIGHTS = { r: 0.213, g: 0.715, b: 0.072 }
+
+function glyphsOver(color: Rgba, lightContentMaxLuma: number): StatusBarStyle {
+  return luma(color) <= lightContentMaxLuma ? 'light-content' : 'dark-content'
+}
+
 function bottomPocket(capture: PageCapture): ScrollPocket {
-  if (capture.facts.sampleInvalid.bottom.some(reason => reason !== null)) return DEFAULT_BOTTOM_POCKET
-  const edge = capture.contentBottomEdge
+  const edge = bottomSample(capture)
+  if (edge.kind === 'void') return DEFAULT_BOTTOM_POCKET
   return { color: edge.kind === 'color' ? edge.color : capture.underPageBackground, strength: 1 }
+}
+
+// Like PageColorSampler::sampleTop, any image, canvas, iframe or animation under a sample point voids the sample.
+function bottomSample(capture: PageCapture): PredominantColor | { readonly kind: 'void' } {
+  return capture.facts.sampleInvalid.bottom.some(reason => reason !== null) ? { kind: 'void' } : capture.contentBottomEdge
 }
 
 function insetFill(inset: number, edge: FixedEdge, underPage: Rgba, pocket: ScrollPocket): InsetFill | null {

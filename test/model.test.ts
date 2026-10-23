@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { planPanels, activeThemeColor } from '../src/model.ts'
 import { underPageBackground, type PageCapture } from '../src/capture.ts'
 import { NO_EDGES, type FixedEdges } from '../src/edges.ts'
-import { findDevice } from '../src/devices.ts'
+import { findDevice, safariGeometry } from '../src/devices.ts'
 import type { PageFacts } from '../src/page-probe.ts'
 import type { Scenario } from '../src/scenario.ts'
 import { BLACK, type Rgba } from '../src/color.ts'
@@ -28,9 +28,9 @@ function facts(overrides: Partial<PageFacts> = {}): PageFacts {
 function capture(edges: FixedEdges, overrides: Partial<PageCapture> = {}, viewportTop = 62): PageCapture {
   const device = findDevice('iphone-17-pro')
   return {
-    facts: facts(), edgesAtLoad: edges, edges, underPageBackground: WHITE, manifest: null, contentUnderStatusBar: WHITE, contentUnderToolbar: WHITE, contentBottomEdge: { kind: 'none' },
+    facts: facts(), edgesAtLoad: edges, edges, underPageBackground: WHITE, manifest: null, contentUnderStatusBar: WHITE, contentUnderToolbar: WHITE, contentBottomEdge: { kind: 'none' }, sampledPageTopColor: null,
     layout: {
-      screen: device.screen, geometry: device.safari26.portrait, toolbar: 'expanded',
+      screen: device.screen, geometry: safariGeometry(device, '26', 'portrait'), toolbar: 'expanded',
       obscured: { top: 62, bottom: 98, left: 0, right: 0 }, viewportTop, viewportHeight: 714, scrollY: 0,
     },
     images: { viewport: Buffer.alloc(0), above: null, below: null },
