@@ -3,7 +3,7 @@ import { toCss, type Rgba } from './color.ts'
 import type { PageCapture, Band } from './capture.ts'
 import type { PanelPlan } from './model.ts'
 import { CHROME_26, type Chrome26 } from './chrome.ts'
-import type { DevicePreset } from './devices.ts'
+import type { DevicePreset, StatusBarLayout } from './devices.ts'
 
 export interface ComposeInput {
   readonly capture: PageCapture
@@ -66,7 +66,7 @@ function imageAssets({ images }: PageCapture): [string, Buffer][] {
  * @param input capture, panel plan and device
  * @returns HTML for the compositor page
  */
-export function composeHtml({ capture, plan, hostLabel }: ComposeInput): string {
+export function composeHtml({ capture, plan, device, hostLabel }: ComposeInput): string {
   const { layout, images } = capture
   const { screen, obscured } = layout
   const chrome = CHROME_26
@@ -84,7 +84,7 @@ export function composeHtml({ capture, plan, hostLabel }: ComposeInput): string 
     band('/below.png', images.below),
     extension(plan.fills.top, 0, obscured.top + plan.topExtensionGrowth, screen.width),
     extension(plan.fills.bottom, screen.height - obscured.bottom, obscured.bottom, screen.width),
-    obscured.top > 0 ? topPocket(topPocketColor, screen.width, chrome) : '',
+    obscured.top > 0 ? topPocket(topPocketColor, screen.width, obscured.top, chrome) : '',
   ].join('')
   const blurBottomEdge = plan.toolbar === 'expanded' && plan.fills.bottom?.kind === 'content'
   const under = base + (blurBottomEdge ? bottomPocket(base, screen, chrome) : '')
@@ -102,7 +102,7 @@ export function composeHtml({ capture, plan, hostLabel }: ComposeInput): string 
     ${glassFilter(chrome)}
     <div class="layer">${under}</div>
     ${plan.refreshControl ? spinner(screen.width / 2, obscured.top + chrome.refreshSpinner.offsetTop, plan.statusBar) : ''}
-    ${statusBar(screen.width, plan.statusBar, chrome)}
+    ${statusBar(screen.width, plan.statusBar, device.statusBar)}
     ${shapes.map(shape => glass(shape, under)).join('\n')}
   </body></html>`
 }
@@ -125,10 +125,12 @@ function extension(fill: PanelPlan['fills']['top'], top: number, height: number,
   return `<div style="position:absolute;left:0;top:${top}px;width:${width}px;height:${height}px;background:${toCss(fill.color)}"></div>`
 }
 
-function topPocket(color: Rgba, width: number, chrome: Chrome26) {
-  const stops = chrome.topPocket.alphaStops
-  const height = stops.at(-1)![0]
-  const gradient = stops.map(([distance, alpha]) => `${rgba(color, alpha)} ${distance}px`).join(', ')
+function topPocket(color: Rgba, width: number, topInset: number, chrome: Chrome26) {
+  const { alphaStops, measuredTopInset } = chrome.topPocket
+  // Measured on one status bar height only; other devices assume the fade scales with it.
+  const scale = topInset / measuredTopInset
+  const height = alphaStops.at(-1)![0] * scale
+  const gradient = alphaStops.map(([distance, alpha]) => `${rgba(color, alpha)} ${distance * scale}px`).join(', ')
   return `<div style="position:absolute;left:0;top:0;width:${width}px;height:${height}px;background:linear-gradient(to bottom, ${gradient})"></div>`
 }
 
@@ -146,21 +148,32 @@ function glyphColor(style: PanelPlan['statusBar']) {
   return style === 'light-content' ? '#ffffff' : '#000000'
 }
 
-function statusBar(width: number, style: PanelPlan['statusBar'], chrome: Chrome26) {
-  const { statusBar: s } = chrome
+function statusBar(width: number, style: PanelPlan['statusBar'], layout: StatusBarLayout) {
   const color = glyphColor(style)
-  const right = width - s.trailingInset
-  return `<div style="position:absolute;left:0;top:0;width:${width}px;height:${s.height}px;color:${color}">
-    <div style="position:absolute;left:${s.timeCenterX - 40}px;width:80px;top:${s.timeBaseline - s.timeFontSize}px;height:${s.timeFontSize}px;line-height:${s.timeFontSize}px;text-align:center;font-size:${s.timeFontSize}px;font-weight:600;letter-spacing:-0.2px">9:41</div>
-    <svg style="position:absolute;left:${right - 79}px;top:${s.iconsCenterY - 6.5}px" width="79" height="13" viewBox="0 0 79 13" fill="${color}">
-      <rect x="0" y="8.3" width="3.2" height="4.4" rx="0.9"/><rect x="5" y="5.9" width="3.2" height="6.8" rx="0.9"/>
-      <rect x="10" y="3.4" width="3.2" height="9.3" rx="0.9"/><rect x="15" y="0.8" width="3.2" height="11.9" rx="0.9"/>
-      <path d="M31.5 2.6c2.4 0 4.6.9 6.3 2.5l1.2-1.2C37 1.9 34.4.8 31.5.8s-5.5 1.1-7.5 3.1l1.2 1.2c1.7-1.6 3.9-2.5 6.3-2.5zm0 3.6c1.4 0 2.7.5 3.7 1.5l1.2-1.2c-1.4-1.3-3.1-2.1-4.9-2.1s-3.5.8-4.9 2.1l1.2 1.2c1-1 2.3-1.5 3.7-1.5zm0 3.5c-.6 0-1.1.2-1.5.6l1.5 1.5 1.5-1.5c-.4-.4-.9-.6-1.5-.6z"/>
-      <rect x="51.3" y="0.8" width="24.4" height="11.5" rx="3.6" fill="none" stroke="${color}" stroke-opacity="0.4" stroke-width="1"/>
-      <rect x="53.2" y="2.7" width="20.6" height="7.7" rx="2.1"/>
-      <path d="M76.9 4.6v4c.8-.3 1.4-1.1 1.4-2s-.6-1.7-1.4-2z" fill-opacity="0.4"/>
-    </svg>
-  </div>`
+  const glyphs = statusGlyphs(color, layout.fontSize / REFERENCE_FONT_SIZE)
+  const icon = (svg: string, left: number) => `<div style="position:absolute;left:${left}px;top:${layout.iconsCenterY}px;transform:translateY(-50%);display:flex">${svg}</div>`
+  const time = (centerX: number) => `<div style="position:absolute;left:${centerX - 40}px;width:80px;top:${layout.timeBaseline - layout.fontSize}px;height:${layout.fontSize}px;line-height:${layout.fontSize}px;text-align:center;font-size:${layout.fontSize}px;font-weight:600;letter-spacing:-0.2px">9:41</div>`
+  const parts = layout.kind === 'split'
+    ? [time(layout.timeCenterX), icon(glyphs.signal + glyphs.wifi + glyphs.battery, width - layout.trailingInset - glyphs.width.all)]
+    : [icon(glyphs.signal + glyphs.wifi, layout.sideInset), time(width / 2), icon(glyphs.battery, width - layout.sideInset - glyphs.width.battery)]
+  return `<div style="position:absolute;left:0;top:0;width:${width}px;color:${color}">${parts.join('')}</div>`
+}
+
+// Glyph artwork is drawn for the 17pt status bar of Dynamic Island iPhones and scaled for the others.
+const REFERENCE_FONT_SIZE = 17
+
+function statusGlyphs(color: string, scale: number) {
+  const svg = (width: number, gapAfter: number, body: string) => `<svg width="${width * scale}" height="${13 * scale}" viewBox="0 0 ${width} 13" fill="${color}" style="margin-right:${gapAfter * scale}px">${body}</svg>`
+  const width = { signal: 18.2, wifi: 15.4, battery: 28.3 }
+  const gap = { signal: 5.6, wifi: 11.3 }
+  return {
+    width: { all: (width.signal + gap.signal + width.wifi + gap.wifi + width.battery) * scale, battery: width.battery * scale },
+    signal: svg(width.signal, gap.signal, `<rect x="0" y="8.3" width="3.2" height="4.4" rx="0.9"/><rect x="5" y="5.9" width="3.2" height="6.8" rx="0.9"/>
+      <rect x="10" y="3.4" width="3.2" height="9.3" rx="0.9"/><rect x="15" y="0.8" width="3.2" height="11.9" rx="0.9"/>`),
+    wifi: svg(width.wifi, gap.wifi, `<path transform="translate(-23.8 0)" d="M31.5 2.6c2.4 0 4.6.9 6.3 2.5l1.2-1.2C37 1.9 34.4.8 31.5.8s-5.5 1.1-7.5 3.1l1.2 1.2c1.7-1.6 3.9-2.5 6.3-2.5zm0 3.6c1.4 0 2.7.5 3.7 1.5l1.2-1.2c-1.4-1.3-3.1-2.1-4.9-2.1s-3.5.8-4.9 2.1l1.2 1.2c1-1 2.3-1.5 3.7-1.5zm0 3.5c-.6 0-1.1.2-1.5.6l1.5 1.5 1.5-1.5c-.4-.4-.9-.6-1.5-.6z"/>`),
+    battery: svg(width.battery, 0, `<g transform="translate(-50.5 0)"><rect x="51.3" y="0.8" width="24.4" height="11.5" rx="3.6" fill="none" stroke="${color}" stroke-opacity="0.4" stroke-width="1"/>
+      <rect x="53.2" y="2.7" width="20.6" height="7.7" rx="2.1"/><path d="M76.9 4.6v4c.8-.3 1.4-1.1 1.4-2s-.6-1.7-1.4-2z" fill-opacity="0.4"/></g>`),
+  }
 }
 
 function expandedToolbar(screen: { width: number, height: number }, hostLabel: string, chrome: Chrome26): GlassShape[] {
