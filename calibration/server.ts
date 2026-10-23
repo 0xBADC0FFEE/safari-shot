@@ -1,29 +1,29 @@
-import { createServer } from 'node:http'
+import { createServer, type Server } from 'node:http'
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { join, extname, normalize } from 'node:path'
+import { findCase } from './corpus.ts'
 
 const PAGES_DIR = join(import.meta.dirname, 'pages')
 const REPORTS_DIR = join(import.meta.dirname, 'out', 'reports')
-const DEFAULT_PORT = 8765
+export const CALIBRATION_PORT = 8765
 
 const CONTENT_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
-  '.css': 'text/css',
-  '.js': 'text/javascript',
   '.json': 'application/json',
   '.webmanifest': 'application/manifest+json',
-  '.png': 'image/png',
-  '.svg': 'image/svg+xml',
 }
 
 /**
- * Serves calibration pages and stores reports that pages POST to /report/<name>.
+ * Serves corpus cases at /case/<name>, static pages, and stores reports POSTed to /report/<name>.
  * @param port TCP port on localhost
- * @returns the listening server
+ * @returns the listening server, or null when another calibration server already holds the port
  */
-export function startCalibrationServer(port = DEFAULT_PORT) {
+export function startCalibrationServer(port = CALIBRATION_PORT): Promise<Server | null> {
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost')
+    const send = (status: number, type: string, body: string | Buffer) =>
+      res.writeHead(status, { 'content-type': type, 'cache-control': 'no-store' }).end(body)
+
     if (req.method === 'POST' && url.pathname.startsWith('/report/')) {
       const name = url.pathname.slice('/report/'.length).replace(/[^\w.-]/g, '_')
       const chunks: Buffer[] = []
@@ -33,20 +33,43 @@ export function startCalibrationServer(port = DEFAULT_PORT) {
       res.writeHead(204).end()
       return
     }
-    const path = normalize(url.pathname === '/' ? '/index.html' : url.pathname)
+    if (url.pathname.startsWith('/case/')) {
+      const file = url.pathname.slice('/case/'.length)
+      const corpusCase = findCase(file.replace(/\.webmanifest$/, ''))
+      if (!corpusCase) return send(404, 'text/plain', 'unknown case')
+      if (file.endsWith('.webmanifest')) return send(200, CONTENT_TYPES['.webmanifest']!, JSON.stringify(corpusCase.manifest ?? {}))
+      const reportId = url.searchParams.get('report')
+      return send(200, CONTENT_TYPES['.html']!, reportId ? corpusCase.html.replace('</body>', `${reporterScript(reportId)}</body>`) : corpusCase.html)
+    }
+    const path = normalize(url.pathname)
     try {
-      const body = await readFile(join(PAGES_DIR, path))
-      res.writeHead(200, { 'content-type': CONTENT_TYPES[extname(path)] ?? 'application/octet-stream', 'cache-control': 'no-store' })
-      res.end(body)
+      send(200, CONTENT_TYPES[extname(path)] ?? 'application/octet-stream', await readFile(join(PAGES_DIR, path)))
     } catch {
-      res.writeHead(404).end()
+      send(404, 'text/plain', 'not found')
     }
   })
-  return new Promise<typeof server>(resolve => server.listen(port, () => resolve(server)))
+  return new Promise((resolve, reject) => {
+    server.once('error', (error: NodeJS.ErrnoException) => error.code === 'EADDRINUSE' ? resolve(null) : reject(error))
+    server.listen(port, () => resolve(server))
+  })
+}
+
+function reporterScript(reportId: string) {
+  return `<script>
+(() => {
+  const states = []
+  const report = label => {
+    states.push({ label, inner: [innerWidth, innerHeight], scrollY, visualViewport: [visualViewport.width, visualViewport.height, visualViewport.offsetTop],
+      scheme: matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light', standalone: navigator.standalone })
+    fetch('/report/${reportId}', { method: 'POST', body: JSON.stringify(states) })
+  }
+  addEventListener('load', () => setTimeout(() => report('load'), 300))
+  addEventListener('scrollend', () => report('scrollend'))
+})()
+</script>`
 }
 
 if (import.meta.main) {
-  const port = Number(process.env.PORT ?? DEFAULT_PORT)
-  await startCalibrationServer(port)
-  console.log(`calibration server on http://localhost:${port}`)
+  await startCalibrationServer(Number(process.env.PORT ?? CALIBRATION_PORT))
+  console.log(`calibration server on http://localhost:${process.env.PORT ?? CALIBRATION_PORT}`)
 }

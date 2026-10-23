@@ -82,6 +82,10 @@ final class DriverTests: XCTestCase {
                 withVelocity: XCUIGestureVelocity(CGFloat(step.velocity ?? 1500)),
                 thenHoldForDuration: step.hold ?? 0
             )
+        case "swipe":
+            let webView = app.webViews.firstMatch
+            let velocity = XCUIGestureVelocity(CGFloat(step.velocity ?? 800))
+            if step.label == "down" { webView.swipeDown(velocity: velocity) } else { webView.swipeUp(velocity: velocity) }
         case "tapLabel":
             let label = try XCTUnwrap(step.label)
             let element = app.descendants(matching: .any)[label].firstMatch
@@ -94,6 +98,8 @@ final class DriverTests: XCTestCase {
         case "dumpTree":
             let target = URL(fileURLWithPath: try XCTUnwrap(step.label))
             try app.debugDescription.write(to: target, atomically: true, encoding: .utf8)
+        case "orient":
+            XCUIDevice.shared.orientation = step.label == "landscape" ? .landscapeLeft : .portrait
         case "sleep":
             Thread.sleep(forTimeInterval: step.duration ?? 1)
         default:

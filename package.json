@@ -1,0 +1,31 @@
+{
+  "name": "safari-shot",
+  "version": "0.1.0",
+  "description": "Screenshots of web pages as iOS Safari shows them, including the areas under the status bar and toolbars",
+  "type": "module",
+  "bin": {
+    "safari-shot": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "assets"
+  ],
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test 'test/**/*.test.ts'",
+    "calibrate": "node calibration/calibrate.ts",
+    "shot": "node src/cli.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "playwright": "^1.64.1",
+    "sharp": "^0.35.5"
+  }
+}
