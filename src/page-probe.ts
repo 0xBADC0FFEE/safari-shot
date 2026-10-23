@@ -28,7 +28,7 @@ export type EdgeProbe =
     readonly samplingRect: ClientRect
   }
 
-export type TopSampleInvalidReason = 'image' | 'animation' | 'canvas' | 'iframe'
+export type SampleInvalidReason = 'image' | 'animation' | 'canvas' | 'iframe'
 
 export interface PageFacts {
   readonly url: string
@@ -45,7 +45,8 @@ export interface PageFacts {
   readonly appleWebApp: { readonly capable: boolean, readonly statusBarStyle: string | null, readonly title: string | null }
   readonly hasViewportConstrainedObjects: boolean
   readonly edges: Readonly<Record<Side, EdgeProbe>>
-  readonly topSampleInvalid: readonly (TopSampleInvalidReason | null)[]
+  /** Per PageColorSampler sample point along the layout viewport's top and bottom rows: why it cannot be sampled. */
+  readonly sampleInvalid: Readonly<Record<'top' | 'bottom', readonly (SampleInvalidReason | null)[]>>
   /** Whether each previous edge container still renders visibly (headers and footers always count). */
   readonly previousContainerVisible: Readonly<Partial<Record<Side, boolean>>>
 }
@@ -54,7 +55,7 @@ export interface ProbeOptions {
   /** Size WebKit uses for default (`vh`) viewport units: the large viewport. */
   readonly defaultViewportUnits: { readonly width: number, readonly height: number }
   readonly sides: readonly Side[]
-  readonly topSampleCount: number
+  readonly edgeSampleCount: number
   readonly previousContainerIds: Readonly<Partial<Record<Side, string>>>
 }
 
@@ -203,9 +204,15 @@ export function probePage(options: ProbeOptions): PageFacts {
     return matches(':modal') || matches(':popover-open') || matches(':fullscreen')
   }
 
+  // A popover's ::backdrop is `pointer-events: none !important` in the UA sheet, so elementFromPoint misses it even with
+  // the override; WebKit's first hit-test pass ignores pointer-events and lands on the topmost backdrop.
+  const topmostTopLayerElement = [...document.querySelectorAll('*')].filter(isInTopLayer).at(-1)
+
   type Found = { probe: EdgeProbe, retryHonoringPointerEvents: boolean }
   const findFixedContainer = (side: Side, ignorePointerEvents: boolean): Found => {
-    const hit = hitTest(midpoint(side, fixedRect), ignorePointerEvents)
+    const pointHit = hitTest(midpoint(side, fixedRect), ignorePointerEvents)
+    const backdropHit = ignorePointerEvents && topmostTopLayerElement && !(pointHit && topmostTopLayerElement.contains(pointHit))
+    const hit = backdropHit ? topmostTopLayerElement : pointHit
     if (!hit) return { probe: { kind: 'no-container', hit: null }, retryHonoringPointerEvents: false }
 
     if (isInTopLayer(hit)) {
@@ -271,9 +278,9 @@ export function probePage(options: ProbeOptions): PageFacts {
     return [side, found.probe]
   })) as Record<Side, EdgeProbe>
 
-  const topSampleInvalid = Array.from({ length: options.topSampleCount }, (_, i) => {
-    const x = Math.min(innerWidth - 1, innerWidth * i / (options.topSampleCount - 1))
-    for (const el of document.elementsFromPoint(x, 0)) {
+  const sampleInvalidAlong = (y: number) => Array.from({ length: options.edgeSampleCount }, (_, i) => {
+    const x = Math.min(innerWidth - 1, innerWidth * i / (options.edgeSampleCount - 1))
+    for (const el of document.elementsFromPoint(x, y)) {
       const s = style(el)
       if (el.tagName === 'IMG' || s.backgroundImage !== 'none') return 'image' as const
       if (el.getAnimations().some(a => a.playState === 'running')) return 'animation' as const
@@ -314,7 +321,7 @@ export function probePage(options: ProbeOptions): PageFacts {
     },
     hasViewportConstrainedObjects,
     edges,
-    topSampleInvalid,
+    sampleInvalid: { top: sampleInvalidAlong(0), bottom: sampleInvalidAlong(innerHeight - 1) },
     previousContainerVisible,
   }
 }

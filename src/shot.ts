@@ -38,6 +38,7 @@ export interface ShotReport {
     readonly top: PanelReport | null
     readonly bottom: PanelReport | null
     readonly statusBar: PanelPlan['statusBar']
+    readonly glass: PanelPlan['glass']
     readonly overscrollColor: string
   }
   readonly underPageBackground: string
@@ -87,7 +88,7 @@ function buildReport(request: ShotRequest, capture: PageCapture, plan: PanelPlan
   const { layout, facts } = capture
   const panel = (fill: PanelPlan['fills']['top']): PanelReport | null => !fill ? null : {
     fill: fill.kind,
-    color: toHex(fill.kind === 'extension' ? fill.color : fill.pocketColor),
+    color: toHex(fill.kind === 'extension' ? fill.color : fill.pocket.color),
     reason: fill.reason,
   }
   const overscrollColor: Rgba = plan.topExtensionGrowth > 0 && plan.fills.top?.kind === 'extension' ? plan.fills.top.color : plan.underPageBackground
@@ -102,7 +103,7 @@ function buildReport(request: ShotRequest, capture: PageCapture, plan: PanelPlan
       layoutViewport: { top: layout.viewportTop, width: facts.viewport.width, height: facts.viewport.height },
       scrollY: layout.scrollY,
     },
-    panels: { top: panel(plan.fills.top), bottom: panel(plan.fills.bottom), statusBar: plan.statusBar, overscrollColor: toHex(overscrollColor) },
+    panels: { top: panel(plan.fills.top), bottom: panel(plan.fills.bottom), statusBar: plan.statusBar, glass: plan.glass, overscrollColor: toHex(overscrollColor) },
     underPageBackground: toHex(plan.underPageBackground),
     themeColor: { color: plan.themeColor.color ? toHex(plan.themeColor.color) : null, source: plan.themeColor.source, usedByPanels: false },
     fixedEdges: { atLoad: edgesReport(capture.edgesAtLoad), final: edgesReport(capture.edges) },

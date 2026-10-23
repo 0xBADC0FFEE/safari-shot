@@ -89,6 +89,6 @@ Safari in the iOS Simulator. Agents using the CLI never need it.
 ```bash
 node calibration/capture-references.ts --udid <simulator-udid>   # Safari screenshots of every corpus page
 node calibration/compare.ts --sheets                              # re-render and compare panel regions
-node calibration/fit-glass.ts                                     # refit the glass color matrix
+node calibration/fit-glass.ts                                     # refit the light and dark glass matrices
 node calibration/measure-devices.ts --types "iPhone 17,iPhone Air"
 ```

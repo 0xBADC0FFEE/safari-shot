@@ -55,6 +55,11 @@ export function relativeLuminance({ r, g, b }: Rgba) {
   return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
 }
 
+/** Rec. 709 luma of the gamma-encoded color, 0 (black) to 1 (white); UIKit-style "is this color light" checks use it. */
+export function luma({ r, g, b }: Rgba) {
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+}
+
 export function toHex({ r, g, b, a }: Rgba) {
   const hex = (n: number) => Math.round(n).toString(16).padStart(2, '0')
   return `#${hex(r)}${hex(g)}${hex(b)}${a < 1 ? hex(a * 255) : ''}`

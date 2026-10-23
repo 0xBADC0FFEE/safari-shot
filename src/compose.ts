@@ -1,8 +1,8 @@
 import type { Browser } from 'playwright'
 import { toCss, type Rgba } from './color.ts'
 import type { PageCapture, Band } from './capture.ts'
-import type { PanelPlan } from './model.ts'
-import { CHROME_26, type Chrome26 } from './chrome.ts'
+import type { PanelPlan, ScrollPocket } from './model.ts'
+import { CHROME_26, type Chrome26, type GlassVariant } from './chrome.ts'
 import type { DevicePreset, StatusBarLayout } from './devices.ts'
 
 export interface ComposeInput {
@@ -77,7 +77,7 @@ export function composeHtml({ capture, plan, device, hostLabel }: ComposeInput):
   const band = (path: string, b: Band | null) => b ? img(path, b.top, b.height) : ''
 
   const topPocketColor = plan.fills.top?.kind === 'extension' ? plan.fills.top.color : plan.underPageBackground
-  const base = [
+  const under = [
     `<div style="position:absolute;inset:0;background:${toCss(plan.underPageBackground)}"></div>`,
     band('/above.png', images.above),
     img('/viewport.png', layout.viewportTop, layout.viewportHeight),
@@ -85,10 +85,10 @@ export function composeHtml({ capture, plan, device, hostLabel }: ComposeInput):
     extension(plan.fills.top, 0, obscured.top + plan.topExtensionGrowth, screen.width),
     extension(plan.fills.bottom, screen.height - obscured.bottom, obscured.bottom, screen.width),
     obscured.top > 0 ? topPocket(topPocketColor, screen.width, obscured.top, chrome) : '',
+    plan.toolbar === 'expanded' && plan.fills.bottom?.kind === 'content' ? bottomPocket(plan.fills.bottom.pocket, screen, chrome) : '',
   ].join('')
-  const blurBottomEdge = plan.toolbar === 'expanded' && plan.fills.bottom?.kind === 'content'
-  const under = base + (blurBottomEdge ? bottomPocket(base, screen, chrome) : '')
-  const shapes = plan.toolbar === 'expanded' ? expandedToolbar(screen, hostLabel, chrome) : collapsedToolbar(screen, hostLabel, chrome)
+  const variant = chrome.glass[plan.glass]
+  const shapes = plan.toolbar === 'expanded' ? expandedToolbar(screen, hostLabel, chrome, variant) : collapsedToolbar(screen, hostLabel, chrome, variant)
 
   return `<!doctype html><html><head><meta charset="utf-8"><style>
     html, body { margin: 0; width: ${screen.width}px; height: ${screen.height}px; overflow: hidden; }
@@ -97,9 +97,9 @@ export function composeHtml({ capture, plan, device, hostLabel }: ComposeInput):
     .glass { position: absolute; overflow: hidden; box-shadow: ${chrome.glass.shadow}; }
     .glass > .refraction { filter: url(#glass); }
     .glass > .inner { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
-    .glass::after { content: ''; position: absolute; inset: 0; border-radius: inherit; box-shadow: ${chrome.glass.rim}; }
+    .glass::after { content: ''; position: absolute; inset: 0; border-radius: inherit; box-shadow: ${variant.rim}; }
   </style></head><body>
-    ${glassFilter(chrome)}
+    ${glassFilter(chrome, variant, plan.glassWhitened)}
     <div class="layer">${under}</div>
     ${plan.refreshControl ? spinner(screen.width / 2, obscured.top + chrome.refreshSpinner.offsetTop, plan.statusBar) : ''}
     ${statusBar(screen.width, plan.statusBar, device.statusBar)}
@@ -107,10 +107,22 @@ export function composeHtml({ capture, plan, device, hostLabel }: ComposeInput):
   </body></html>`
 }
 
-function glassFilter(chrome: Chrome26) {
-  const matrix = chrome.glass.colorMatrix.map(n => n.toFixed(4)).join(' ')
+function glassFilter(chrome: Chrome26, variant: GlassVariant, whitened: boolean) {
+  const colorMatrix = whitened ? mixWithWhite(variant.colorMatrix, chrome.glass.whitenedMix) : variant.colorMatrix
+  const matrix = colorMatrix.map(n => n.toFixed(4)).join(' ')
   return `<svg width="0" height="0" style="position:absolute"><filter id="glass" x="-10%" y="-10%" width="120%" height="120%" color-interpolation-filters="sRGB">
     <feGaussianBlur stdDeviation="${chrome.glass.blur}"/><feColorMatrix type="matrix" values="${matrix}"/></filter></svg>`
+}
+
+const MATRIX_COLUMNS = 5
+const OFFSET_COLUMN = 4
+const ALPHA_ROW_START = 15
+
+function mixWithWhite(matrix: readonly number[], share: number) {
+  return matrix.map((n, i) => {
+    if (i >= ALPHA_ROW_START) return n
+    return n * (1 - share) + (i % MATRIX_COLUMNS === OFFSET_COLUMN ? share : 0)
+  })
 }
 
 function glass(shape: GlassShape, under: string) {
@@ -134,10 +146,11 @@ function topPocket(color: Rgba, width: number, topInset: number, chrome: Chrome2
   return `<div style="position:absolute;left:0;top:0;width:${width}px;height:${height}px;background:linear-gradient(to bottom, ${gradient})"></div>`
 }
 
-function bottomPocket(base: string, screen: { width: number, height: number }, chrome: Chrome26) {
-  const { blur, alphaStops } = chrome.bottomPocket
-  const mask = `linear-gradient(to top, ${alphaStops.map(([distance, alpha]) => `rgba(0,0,0,${alpha}) ${distance}px`).join(', ')})`
-  return `<div class="layer" style="-webkit-mask-image:${mask};mask-image:${mask}"><div class="layer" style="filter:blur(${blur}px)">${base}</div></div>`
+function bottomPocket(pocket: ScrollPocket, screen: { width: number, height: number }, chrome: Chrome26) {
+  const stops = chrome.bottomPocket.alphaStops
+  const height = stops.at(-1)![0]
+  const gradient = stops.map(([distance, alpha]) => `${rgba(pocket.color, alpha * pocket.strength)} ${distance}px`).join(', ')
+  return `<div style="position:absolute;left:0;top:${screen.height - height}px;width:${screen.width}px;height:${height}px;background:linear-gradient(to top, ${gradient})"></div>`
 }
 
 function rgba(color: Rgba, alpha: number) {
@@ -176,15 +189,15 @@ function statusGlyphs(color: string, scale: number) {
   }
 }
 
-function expandedToolbar(screen: { width: number, height: number }, hostLabel: string, chrome: Chrome26): GlassShape[] {
+function expandedToolbar(screen: { width: number, height: number }, hostLabel: string, chrome: Chrome26, variant: GlassVariant): GlassShape[] {
   const t = chrome.toolbarExpanded
   const top = screen.height - t.bottomMargin - t.height
   const pillLeft = t.sideMargin + t.height + t.gap
   const pillWidth = screen.width - 2 * pillLeft
-  const ink = chrome.glass.ink
+  const ink = variant.ink
   const circle = (left: number, inner: string): GlassShape => ({ left, top, width: t.height, height: t.height, radius: t.height / 2, inner })
   return [
-    circle(t.sideMargin, `<svg width="12" height="20" viewBox="0 0 12 20"><path d="M10 2 2 10l8 8" fill="none" stroke="${t.disabledIconColor}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`),
+    circle(t.sideMargin, `<svg width="12" height="20" viewBox="0 0 12 20"><path d="M10 2 2 10l8 8" fill="none" stroke="${variant.disabledInk}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`),
     {
       left: pillLeft, top, width: pillWidth, height: t.height, radius: t.height / 2,
       inner: `<svg style="position:absolute;left:${t.pageMenuIconLeft}px;top:${t.height / 2 - 9}px" width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="${ink}" stroke-width="1.6" stroke-linecap="round">
@@ -197,12 +210,12 @@ function expandedToolbar(screen: { width: number, height: number }, hostLabel: s
   ]
 }
 
-function collapsedToolbar(screen: { width: number, height: number }, hostLabel: string, chrome: Chrome26): GlassShape[] {
+function collapsedToolbar(screen: { width: number, height: number }, hostLabel: string, chrome: Chrome26, variant: GlassVariant): GlassShape[] {
   const t = chrome.toolbarCollapsed
   const width = Math.round(textWidth(hostLabel, t.fontSize) + 2 * t.paddingX)
   return [{
     left: (screen.width - width) / 2, top: screen.height - t.bottomMargin - t.height, width, height: t.height, radius: t.height / 2,
-    inner: `<span style="font-size:${t.fontSize}px;font-weight:500;color:${chrome.glass.ink};letter-spacing:-0.2px;white-space:nowrap">${escapeHtml(hostLabel)}</span>`,
+    inner: `<span style="font-size:${t.fontSize}px;font-weight:500;color:${variant.ink};letter-spacing:-0.2px;white-space:nowrap">${escapeHtml(hostLabel)}</span>`,
   }]
 }
 

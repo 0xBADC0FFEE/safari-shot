@@ -78,7 +78,7 @@ test('without a background color the strip is pixel-sampled', async () => {
 })
 
 test('no container keeps the previous edge while its element is still visible', async () => {
-  const previous: FixedEdge = { kind: 'color', color: { r: 1, g: 2, b: 3, a: 1 }, reason: 'background-color of header', container: 'header', containerId: '7' }
+  const previous: FixedEdge = { kind: 'color', color: { r: 1, g: 2, b: 3, a: 1 }, reason: 'background-color of header', container: 'header', containerId: '7', fromDimmingLayer: false }
   const kept = await resolve({ kind: 'no-container', hit: 'p.row' }, { previous, previousStillVisible: true })
   assert.equal(kept.kind, 'color')
   const dropped = await resolve({ kind: 'no-container', hit: 'p.row' }, { previous, previousStillVisible: false })
@@ -86,7 +86,7 @@ test('no container keeps the previous edge while its element is still visible', 
 })
 
 test('a viewport-sized container keeps the existing edge color', async () => {
-  const previous: FixedEdge = { kind: 'color', color: { r: 1, g: 2, b: 3, a: 1 }, reason: 'x', container: 'header', containerId: '7' }
+  const previous: FixedEdge = { kind: 'color', color: { r: 1, g: 2, b: 3, a: 1 }, reason: 'x', container: 'header', containerId: '7', fromDimmingLayer: false }
   const edge = await resolve(container({ isViewportSized: true, backgroundColor: { r: 255, g: 255, b: 255, a: 1 } }), { previous })
   assert.deepEqual(edge.kind === 'color' && edge.color, { r: 1, g: 2, b: 3, a: 1 })
 })

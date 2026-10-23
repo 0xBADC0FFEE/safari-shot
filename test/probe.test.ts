@@ -17,7 +17,7 @@ async function probeCase(name: string): Promise<PageFacts> {
   const page = await browser.newPage({ viewport: VIEWPORT })
   try {
     await page.setContent(corpusCase.html, { waitUntil: 'load' })
-    return await page.evaluate(probePage, { defaultViewportUnits: LARGE_VIEWPORT, sides: [...SIDES], topSampleCount: 5, previousContainerIds: {} })
+    return await page.evaluate(probePage, { defaultViewportUnits: LARGE_VIEWPORT, sides: [...SIDES], edgeSampleCount: 5, previousContainerIds: {} })
   } finally {
     await page.close()
   }

@@ -16,6 +16,10 @@ Each rule says where it comes from: **[src]** is WebKit source (`main`, read 202
 | Expanded toolbar | back ⌀48 at x 34–82, URL pill 89–313 × 48, menu ⌀48 at 320–368, bottom margin 34 | [sim] |
 | Collapsed toolbar | URL pill, height 32, centered, bottom margin 14, 12.6 pt host name | [sim] |
 
+Other iPhones (17 Pro Max, 17, Air, 17e, 16e, SE 3rd gen) share the toolbar insets (98 / 58) and
+layout; only the status bar inset (Air 68, 17e/16e 47, SE 20) and glyph placement differ. The SE uses
+the classic layout: signal and Wi-Fi left, time centered, battery right. [sim]
+
 - Programmatic scrolling (`scrollTo`) does **not** collapse the toolbar; only a touch scroll does. [sim]
 - Content scrolls under both bars; nothing clips it at the layout viewport. [sim]
 - At the top or bottom of the page, and on load, the toolbar is expanded. [sim]
@@ -47,16 +51,44 @@ Each rule says where it comes from: **[src]** is WebKit source (`main`, read 202
 5. **Overscroll at the top** with the refresh control: the top extension grows to fill the gap when
    its color is not similar to the under-page color; otherwise the gap shows the under-page color. [src][sim]
 6. `theme-color` (meta or manifest) does **not** affect the panels. [sim] It is still reported.
+7. **A popover's `::backdrop`** extends like a modal dialog's, although `elementFromPoint` cannot hit it
+   (the UA sheet makes it `pointer-events: none !important`). [sim]
+
+## Scroll edges
+
+- **Top**: the pocket color (the top extension, else the under-page color) over content, opacity
+  0.81 at the screen top fading to 0 at 100 pt. [sim]
+- **Bottom, expanded toolbar, no extension**: the predominant color of the content along the screen's
+  bottom edge over content, opacity 0.85 at the bottom fading to 0 at 136 pt. When an image, gradient,
+  canvas, iframe or animation sits under a bottom sample point (as in `PageColorSampler::sampleTop`),
+  the pocket is black at 31 % of that opacity instead. Collapsed toolbar: no bottom pocket. [sim]
+
+## Status bar
+
+Glyphs are white when the Rec. 709 luma of the gamma-encoded mean color under the status bar
+(extension color, else content with the under-page color in the gaps) is ≤ 0.39, black otherwise.
+`#ff0000` (0.21) and `#795548` (0.36) get white; `#2e7d32` (0.40) and `#808080` (0.50) black. [sim]
 
 ## Glass
 
-Glass pills show the blurred content under them through a color transform fitted on uniform
-backgrounds (`calibration/fit-glass.ts`): saturate 2.25, scale 0.48, offset +0.538, in sRGB.
-White stays white; `#1e88e5` → `#64d3ff`; `#8e24aa` → `#fa8aff`. [sim]
+Glass pills show the blurred backdrop through a color transform in sRGB, fitted on uniform swatches: [sim]
+
+| variant | when | transform | ink |
+|---|---|---|---|
+| light | backdrop luma > 0.206 | saturate 2.25, ×0.48, +0.538 | black |
+| dark | backdrop luma ≤ 0.206 | saturate 2.25, ×0.53, +0.098 | white |
+
+The backdrop is the bottom extension color, else the mean content under the toolbar: `#333333` gets
+dark glass, `#003f7f` light. Over a container's color extension, and over the default black pocket,
+24 % white is mixed into the fill; over a `::backdrop` extension it is not. The pills cast a shadow
+of about 0 11 px 42 px at 16 % black. [sim]
 
 ## Known gaps
 
 - Fonts: Safari renders with SF Pro; Playwright WebKit on Linux falls back to other fonts, so text
   rows can sit a few points off. Panel colors are unaffected.
-- Dark appearance, landscape, standalone (home screen) mode and devices other than the iPhone 17 Pro
-  are not calibrated yet.
+- Dark appearance, landscape and standalone (home screen) mode are not calibrated yet; other devices
+  have measured geometry but no color references.
+- The top pocket on devices other than the iPhone 17 Pro is scaled to their status bar inset, unmeasured.
+- Status bar glyphs over mixed content near the 0.39 switch can come out wrong
+  (`html-body-colors`, scrolled: Safari white, model black).

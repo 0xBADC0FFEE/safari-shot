@@ -1,8 +1,10 @@
 import { readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import sharp from 'sharp'
+import { DARK_GLASS_MAX_LUMA } from '../src/model.ts'
+import { luma } from '../src/color.ts'
 
-// Fits the glass color matrix: saturate(s), then scale b, then offset o, clamped to 0–1 (sRGB).
+// Fits the light and dark glass color matrices: saturate(s), then scale b, then offset o, clamped to 0–1 (sRGB).
 // Pairs come from uniform-background references: pill interior vs. the page color beside it.
 
 const REFERENCES_DIR = join(import.meta.dirname, 'references', 'ios26')
@@ -100,8 +102,11 @@ export function fitGlass(pairs: Pair[]): GlassFit {
 
 if (import.meta.main) {
   const pairs = await collectPairs()
-  const fit = fitGlass(pairs)
+  const isDark = ({ backdrop: [r, g, b] }: Pair) => luma({ r: r * 255, g: g * 255, b: b * 255, a: 1 }) <= DARK_GLASS_MAX_LUMA
   const hex = (t: Triple) => t.map(v => Math.round(v * 255)).join(',')
-  for (const p of pairs) console.log(`${p.name.padEnd(16)} backdrop ${hex(p.backdrop).padEnd(12)} glass ${hex(p.glass).padEnd(12)} model ${hex(apply(fit.matrix, p.backdrop))}`)
-  console.log(JSON.stringify({ ...fit, matrix: fit.matrix.map(v => Number(v.toFixed(4))) }))
+  for (const [variant, group] of [['light', pairs.filter(p => !isDark(p))], ['dark', pairs.filter(isDark)]] as const) {
+    const fit = fitGlass(group)
+    for (const p of group) console.log(`${variant} ${p.name.padEnd(16)} backdrop ${hex(p.backdrop).padEnd(12)} glass ${hex(p.glass).padEnd(12)} model ${hex(apply(fit.matrix, p.backdrop))}`)
+    console.log(variant, JSON.stringify({ ...fit, matrix: fit.matrix.map(v => Number(v.toFixed(4))) }))
+  }
 }

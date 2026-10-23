@@ -8,7 +8,7 @@ import type { Scenario } from './scenario.ts'
 
 export const IOS_SAFARI_USER_AGENT = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Mobile/15E148 Safari/604.1'
 // PageColorSampler::sampleTop takes this many samples along y=0
-const TOP_SAMPLE_COUNT = 5
+const EDGE_SAMPLE_COUNT = 5
 const HIDE_ATTRIBUTE = 'data-safari-shot-hide'
 const LAYER_ATTRIBUTE = 'data-safari-shot-layer'
 const SETTLE_AFTER_SCROLL_MS = 250
@@ -46,6 +46,12 @@ export interface PageCapture {
   readonly underPageBackground: Rgba
   readonly manifest: WebAppManifest | null
   readonly layout: PageLayout
+  /** Mean color on screen under the status bar, the under-page color where no content is; glyphs adapt to it. */
+  readonly contentUnderStatusBar: Rgba
+  /** Mean color on screen under the bottom inset, the under-page color where no content is; glass adapts to it. */
+  readonly contentUnderToolbar: Rgba
+  /** Predominant color of the page content along the screen's bottom edge; the bottom scroll pocket uses it. */
+  readonly contentBottomEdge: PredominantColor
   /** PNGs at device scale: the layout viewport, and document content above and below it. */
   readonly images: {
     readonly viewport: Buffer
@@ -96,7 +102,7 @@ export async function capturePage(browser: Browser, request: CaptureRequest): Pr
     await page.waitForTimeout(request.settleMs)
 
     const probe = (previousIds: Partial<Record<Side, string>> = {}) =>
-      page.evaluate(probePage, { defaultViewportUnits: largeViewport, sides: [...SIDES], topSampleCount: TOP_SAMPLE_COUNT, previousContainerIds: previousIds })
+      page.evaluate(probePage, { defaultViewportUnits: largeViewport, sides: [...SIDES], edgeSampleCount: EDGE_SAMPLE_COUNT, previousContainerIds: previousIds })
     const factsAtLoad = await probe()
     const pageBackgroundAtLoad = underPageBackground(factsAtLoad, scenario.theme)
     const edgesAtLoad = await resolveEdges(page, factsAtLoad, pageBackgroundAtLoad, NO_EDGES)
@@ -128,7 +134,13 @@ export async function capturePage(browser: Browser, request: CaptureRequest): Pr
       scrollY: facts.scroll.y,
     }
     const images = await captureImages(page, layout, facts)
-    return { facts, edgesAtLoad, edges, underPageBackground: pageBackground, manifest: await fetchManifest(context, facts.manifestHref), layout, images }
+    const content = await contentOnScreen(images, layout)
+    return {
+      facts, edgesAtLoad, edges, underPageBackground: pageBackground, manifest: await fetchManifest(context, facts.manifestHref), layout, images,
+      contentUnderStatusBar: meanColorOver(content.rows(0, layout.obscured.top), pageBackground),
+      contentUnderToolbar: meanColorOver(content.rows(layout.screen.height - layout.obscured.bottom, layout.screen.height), pageBackground),
+      contentBottomEdge: predominantColor(content.rows(layout.screen.height - BOTTOM_EDGE_STRIP_PT, layout.screen.height)),
+    }
   } finally {
     await context.close()
   }
@@ -233,6 +245,47 @@ async function captureImages(page: Page, layout: PageLayout, facts: PageFacts): 
   } finally {
     await setFixedLayersHidden(page, false)
   }
+}
+
+// PageColorSampler strips are 2px thick.
+const BOTTOM_EDGE_STRIP_PT = 2
+
+async function contentOnScreen(images: PageCapture['images'], layout: PageLayout) {
+  const { height: viewportPixels = 0 } = await sharp(images.viewport).metadata()
+  const scale = viewportPixels / layout.viewportHeight
+  const width = Math.round(layout.screen.width * scale)
+  const height = Math.round(layout.screen.height * scale)
+  const left = Math.round(layout.geometry.leftInset * scale)
+  const placed = [
+    { png: images.viewport, top: layout.viewportTop },
+    ...[images.above, images.below].filter(band => band !== null).map(band => ({ png: band.png, top: band.top })),
+  ]
+  const composites = await Promise.all(placed.map(async ({ png, top }) => {
+    const pixelTop = Math.round(top * scale)
+    const { width: imageWidth = 0, height: imageHeight = 0 } = await sharp(png).metadata()
+    const skip = Math.max(0, -pixelTop)
+    const visible = Math.min(imageHeight, height - pixelTop) - skip
+    if (visible <= 0) return null
+    const input = await sharp(png).extract({ left: 0, top: skip, width: Math.min(width - left, imageWidth), height: visible }).toBuffer()
+    return { input, top: pixelTop + skip, left }
+  }))
+  const data = await sharp({ create: { width, height, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
+    .composite(composites.filter(c => c !== null)).raw().toBuffer()
+  return {
+    rows: (fromPt: number, toPt: number) => data.subarray(Math.round(fromPt * scale) * width * 4, Math.round(toPt * scale) * width * 4),
+  }
+}
+
+function meanColorOver(rgba: Uint8Array, background: Rgba): Rgba {
+  let r = 0, g = 0, b = 0
+  const count = rgba.length / 4
+  for (let i = 0; i < rgba.length; i += 4) {
+    const alpha = rgba[i + 3]! / 255
+    r += rgba[i]! * alpha + background.r * (1 - alpha)
+    g += rgba[i + 1]! * alpha + background.g * (1 - alpha)
+    b += rgba[i + 2]! * alpha + background.b * (1 - alpha)
+  }
+  return count ? { r: Math.round(r / count), g: Math.round(g / count), b: Math.round(b / count), a: 1 } : background
 }
 
 async function scrollToY(page: Page, y: number) {

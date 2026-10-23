@@ -5,7 +5,7 @@ import type { EdgeProbe, Side } from './page-probe.ts'
 export type FixedEdge =
   | { readonly kind: 'none', readonly reason: string }
   | { readonly kind: 'multiple', readonly reason: string, readonly container: string, readonly containerId: string }
-  | { readonly kind: 'color', readonly color: Rgba, readonly reason: string, readonly container: string, readonly containerId: string }
+  | { readonly kind: 'color', readonly color: Rgba, readonly reason: string, readonly container: string, readonly containerId: string, readonly fromDimmingLayer: boolean }
 
 export type FixedEdges = Readonly<Record<Side, FixedEdge>>
 
@@ -67,12 +67,12 @@ async function resolveSampledEdge({ probe, pageBackground, previous, sample }: E
     const blended = probe.isDimmingLayer || probe.backgroundColor.a < SOLID_COLOR_MIN_ALPHA
     const source = probe.fromBackdrop ? '::backdrop background-color' : 'background-color'
     return {
-      kind: 'color', container, containerId,
+      kind: 'color', container, containerId, fromDimmingLayer: probe.isDimmingLayer,
       color: solid(probe.backgroundColor, probe.isDimmingLayer),
       reason: `${source} of ${role(probe)}${blended ? ' blended over the page background' : ''}`,
     }
   }
-  if (probe.fromBackdrop) return { kind: 'color', container, containerId, color: pageBackground, reason: 'invisible ::backdrop falls back to the page background' }
+  if (probe.fromBackdrop) return { kind: 'color', container, containerId, fromDimmingLayer: true, color: pageBackground, reason: 'invisible ::backdrop falls back to the page background' }
 
   if (previous.kind !== 'none' && 'containerId' in previous && previous.containerId === containerId) {
     return { ...previous, reason: 'same container as last sampling' }
@@ -81,7 +81,7 @@ async function resolveSampledEdge({ probe, pageBackground, previous, sample }: E
   const sampled = await sample()
   if (sampled.kind === 'none') return { kind: 'none', reason: `pixel sampling of ${container} found nothing visible` }
   if (sampled.kind === 'multiple') return { kind: 'multiple', reason: `pixel sampling of ${container} found no predominant color`, container, containerId }
-  return { kind: 'color', container, containerId, color: solid(sampled.color, probe.isDimmingLayer), reason: `predominant pixel color of ${container}` }
+  return { kind: 'color', container, containerId, fromDimmingLayer: probe.isDimmingLayer, color: solid(sampled.color, probe.isDimmingLayer), reason: `predominant pixel color of ${container}` }
 }
 
 function role(probe: Extract<EdgeProbe, { kind: 'container' }>) {
