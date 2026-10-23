@@ -6,15 +6,19 @@ import { webkit, type Browser } from 'playwright'
 import { startCalibrationServer, CALIBRATION_PORT } from './server.ts'
 import { contactSheet } from './contact-sheet.ts'
 import { takeShot, type ShotReport } from '../src/shot.ts'
-import { findDevice, type DevicePreset } from '../src/devices.ts'
-import { deltaE76, relativeLuminance, toHex, type Rgba } from '../src/color.ts'
+import { findDevice } from '../src/devices.ts'
+import { deltaE76, parseSimpleColor, relativeLuminance, toHex, type Rgba } from '../src/color.ts'
 import type { Scenario, ScrollState } from '../src/scenario.ts'
 
 const REFERENCES_DIR = join(import.meta.dirname, 'references')
 const REPORTS_DIR = join(import.meta.dirname, 'out', 'reports')
 const OUTPUT_DIR = join(import.meta.dirname, 'out', 'compare')
+export const EXPECTATIONS_DIR = join(import.meta.dirname, 'expectations')
 const SETTLE_MS = 500
 const DEFAULT_OVERSCROLL_PT = 150
+const GLYPH_CONTRAST = 0.3
+const GLYPH_BACKGROUND_GAP = 3
+const TIME_BOX: Region = { name: 'time', x: 45, y: 24, width: 60, height: 18, tolerance: 0 }
 
 /** A region in points whose mean color must match the reference within `tolerance` ΔE76. */
 interface Region {
@@ -24,6 +28,18 @@ interface Region {
   readonly width: number
   readonly height: number
   readonly tolerance: number
+}
+
+type StatusBarStyle = 'dark-content' | 'light-content'
+
+/** What one Simulator reference shows in the panel regions, plus how to replay it. */
+export interface Expectation {
+  readonly name: string
+  readonly stem: string
+  readonly scrollY: number
+  readonly toolbar: 'expanded' | 'collapsed'
+  readonly regions: readonly (Region & { readonly color: string })[]
+  readonly statusBar: StatusBarStyle
 }
 
 export interface RegionResult {
@@ -38,122 +54,148 @@ export interface CaseResult {
   readonly name: string
   readonly stem: string
   readonly regions: readonly RegionResult[]
-  readonly statusBar: { readonly reference: string, readonly ours: string, readonly pass: boolean }
+  readonly statusBar: { readonly reference: StatusBarStyle, readonly ours: StatusBarStyle, readonly pass: boolean }
   readonly pass: boolean
 }
 
-const { values } = parseArgs({
-  options: {
-    ios: { type: 'string', default: '26' },
-    cases: { type: 'string' },
-    states: { type: 'string' },
-    sheets: { type: 'boolean', default: false },
-  },
-})
-
 if (import.meta.main) {
+  const { values } = parseArgs({
+    options: {
+      ios: { type: 'string', default: '26' },
+      cases: { type: 'string' },
+      states: { type: 'string' },
+      sheets: { type: 'boolean', default: false },
+    },
+  })
   const server = await startCalibrationServer()
   const browser = await webkit.launch()
   try {
-    const results = await compareAll(browser, values.ios, values.cases?.split(','), values.states?.split(',') as ScrollState[] | undefined, values.sheets)
+    const filter = { cases: values.cases?.split(','), states: values.states?.split(',') as ScrollState[] | undefined }
+    const expectations = await buildExpectations(browser, values.ios, filter)
+    if (!filter.cases && !filter.states) {
+      await mkdir(EXPECTATIONS_DIR, { recursive: true })
+      await writeFile(join(EXPECTATIONS_DIR, `ios${values.ios}.json`), JSON.stringify(expectations, null, 1))
+    }
+    const results = await checkExpectations(browser, expectations, { sheets: values.sheets ? values.ios : undefined })
     printTable(results)
+    await mkdir(OUTPUT_DIR, { recursive: true })
     await writeFile(join(OUTPUT_DIR, 'summary.json'), JSON.stringify(results, null, 2))
     if (results.some(r => !r.pass)) process.exitCode = 1
   } finally {
     await browser.close()
-    server?.close()
+    server.close()
   }
 }
 
 /**
- * Re-renders every reference scenario with safari-shot and compares panel regions.
- * @param browser Playwright browser
+ * Reads Simulator references and records the panel colors they show.
+ * @param browser browser used to render each scenario once, to learn its toolbar state and fills
  * @param ios iOS major version of the references
- * @param onlyCases restrict to these corpus cases
- * @param onlyStates restrict to these scroll states
- * @param sheets write side-by-side PNGs for review
- * @returns one result per reference image
+ * @param filter optional case and state restriction
+ * @returns one expectation per reference image
  */
-export async function compareAll(browser: Browser, ios: string, onlyCases?: string[], onlyStates?: ScrollState[], sheets = false): Promise<CaseResult[]> {
+export async function buildExpectations(browser: Browser, ios: string, filter: { cases?: string[], states?: ScrollState[] } = {}): Promise<Expectation[]> {
   const root = join(REFERENCES_DIR, `ios${ios}`)
-  const results: CaseResult[] = []
+  const expectations: Expectation[] = []
   for (const name of (await readdir(root)).sort()) {
-    if (onlyCases && !onlyCases.includes(name)) continue
+    if (filter.cases && !filter.cases.includes(name)) continue
     for (const file of (await readdir(join(root, name))).filter(f => f.endsWith('.png')).sort()) {
       const stem = basename(file, '.png')
-      const [deviceId, orientation, theme, state] = stem.split('.') as [string, Scenario['orientation'], Scenario['theme'], ScrollState]
-      if (onlyStates && !onlyStates.includes(state)) continue
-      const device = findDevice(deviceId)
-      const scenario: Scenario = { state, theme, orientation, mode: 'browser' }
+      if (filter.states && !filter.states.includes(parseStem(stem).scenario.state)) continue
       const replay = await readReplay(name, stem)
-      const { png, report } = await takeShot(browser, {
-        url: `http://localhost:${CALIBRATION_PORT}/case/${name}`,
-        device, scenario, settleMs: SETTLE_MS, overscroll: DEFAULT_OVERSCROLL_PT,
-        scrollY: replay?.scrollY ?? 0,
-        toolbar: replay?.toolbar,
+      const { report } = await render(browser, name, stem, replay)
+      const reference = await rawImage(await readFile(join(root, name, file)))
+      const scale = report.device.scale
+      expectations.push({
+        name, stem, ...replay,
+        regions: regionsFor(report).map(region => ({ ...region, color: toHex(meanColor(reference, region, scale)) })),
+        statusBar: glyphStyle(reference, TIME_BOX, scale),
       })
-      const referencePath = join(root, name, file)
-      const outDir = join(OUTPUT_DIR, name)
+    }
+  }
+  return expectations
+}
+
+/**
+ * Renders every expectation with safari-shot and compares the panel regions.
+ * @param browser Playwright browser
+ * @param expectations recorded reference colors
+ * @param options `sheets`: iOS version whose references to put next to ours in review PNGs
+ * @returns one result per expectation
+ */
+export async function checkExpectations(browser: Browser, expectations: readonly Expectation[], options: { sheets?: string } = {}): Promise<CaseResult[]> {
+  const results: CaseResult[] = []
+  for (const expectation of expectations) {
+    const { png } = await render(browser, expectation.name, expectation.stem, expectation)
+    const scale = findDevice(parseStem(expectation.stem).deviceId).scale
+    const ours = await rawImage(png)
+    const regions = expectation.regions.map(region => {
+      const reference = parseSimpleColor(region.color)!
+      const our = meanColor(ours, region, scale)
+      const deltaE = deltaE76(reference, our)
+      return { region: region.name, reference: region.color, ours: toHex(our), deltaE: Math.round(deltaE * 10) / 10, pass: deltaE <= region.tolerance }
+    })
+    const ourStyle = glyphStyle(ours, TIME_BOX, scale)
+    const statusBar = { reference: expectation.statusBar, ours: ourStyle, pass: ourStyle === expectation.statusBar }
+    results.push({ name: expectation.name, stem: expectation.stem, regions, statusBar, pass: statusBar.pass && regions.every(r => r.pass) })
+    if (options.sheets) {
+      const outDir = join(OUTPUT_DIR, expectation.name)
       await mkdir(outDir, { recursive: true })
-      const oursPath = join(outDir, `${stem}.ours.png`)
+      const oursPath = join(outDir, `${expectation.stem}.ours.png`)
       await writeFile(oursPath, png)
-      await writeFile(join(outDir, `${stem}.ours.json`), JSON.stringify(report, null, 2))
-      if (sheets) await contactSheet(join(outDir, `${stem}.sheet.png`), 402, [referencePath, oursPath])
-      results.push(await compareImages(name, stem, referencePath, png, device, report))
+      await contactSheet(join(outDir, `${expectation.stem}.sheet.png`), 402, [join(REFERENCES_DIR, `ios${options.sheets}`, expectation.name, `${expectation.stem}.png`), oursPath])
     }
   }
   return results
 }
 
-async function readReplay(name: string, stem: string): Promise<{ scrollY: number, toolbar: 'expanded' | 'collapsed' } | undefined> {
+function parseStem(stem: string) {
+  const [deviceId, orientation, theme, state] = stem.split('.') as [string, Scenario['orientation'], Scenario['theme'], ScrollState]
+  return { deviceId, scenario: { state, theme, orientation, mode: 'browser' } satisfies Scenario }
+}
+
+async function render(browser: Browser, name: string, stem: string, replay: { scrollY: number, toolbar: 'expanded' | 'collapsed' }): Promise<{ png: Buffer, report: ShotReport }> {
+  const { deviceId, scenario } = parseStem(stem)
+  return takeShot(browser, {
+    url: `http://localhost:${CALIBRATION_PORT}/case/${name}`,
+    device: findDevice(deviceId), scenario, settleMs: SETTLE_MS, overscroll: DEFAULT_OVERSCROLL_PT,
+    scrollY: replay.scrollY, toolbar: replay.toolbar,
+  })
+}
+
+async function readReplay(name: string, stem: string): Promise<{ scrollY: number, toolbar: 'expanded' | 'collapsed' }> {
+  const fallback = { scrollY: 0, toolbar: parseStem(stem).scenario.state === 'scrolled' ? 'collapsed' as const : 'expanded' as const }
   try {
     const states = JSON.parse(await readFile(join(REPORTS_DIR, `${name}.${stem}.json`), 'utf8')) as { inner: [number, number], scrollY: number }[]
     const last = states.at(-1)!
-    const first = states[0]!
-    return { scrollY: last.scrollY, toolbar: last.inner[1] > first.inner[1] ? 'collapsed' : 'expanded' }
+    return { scrollY: last.scrollY, toolbar: last.inner[1] > states[0]!.inner[1] ? 'collapsed' : 'expanded' }
   } catch {
-    return undefined
+    return fallback
   }
 }
 
 function regionsFor(report: ShotReport): Region[] {
   const { height } = report.device.screen
-  const insets = report.layout.obscuredInsets
-  const top = insets.top!
-  const bottom = insets.bottom!
+  const top = report.layout.obscuredInsets.top!
+  const bottom = report.layout.obscuredInsets.bottom!
   const statusGap = { name: 'status-band', x: 120, y: 2, width: 150, height: top - 4, tolerance: 3 }
-  if (report.scenario.state.startsWith('overscroll')) return [statusGap]
-  const regions: Region[] = [statusGap]
+  // The rubber-band distance of a simulator gesture is not reproducible; only an extension makes the band comparable.
+  if (report.scenario.state === 'overscroll-bottom') return report.panels.top?.fill === 'extension' ? [statusGap] : []
+  if (report.scenario.state === 'overscroll-top') return [statusGap]
   if (report.layout.toolbar === 'expanded') {
-    regions.push(
+    return [
+      statusGap,
       { name: 'bottom-left-edge', x: 0, y: height - bottom, width: 30, height: bottom, tolerance: 4 },
       { name: 'below-toolbar', x: 90, y: height - 30, width: 220, height: 28, tolerance: 4 },
       { name: 'glass-pill', x: 135, y: 797, width: 25, height: 8, tolerance: 6 },
       { name: 'glass-back', x: 50, y: 806, width: 6, height: 20, tolerance: 6 },
-    )
-  } else {
-    regions.push(
-      { name: 'bottom-left-edge', x: 0, y: height - bottom, width: 140, height: bottom, tolerance: 4 },
-      { name: 'glass-collapsed', x: 161, y: 834, width: 8, height: 18, tolerance: 6 },
-    )
+    ]
   }
-  return regions
-}
-
-async function compareImages(name: string, stem: string, referencePath: string, ours: Buffer, device: DevicePreset, report: ShotReport): Promise<CaseResult> {
-  const reference = await rawImage(await readFile(referencePath))
-  const mine = await rawImage(ours)
-  const regions = regionsFor(report).map(region => {
-    const ref = meanColor(reference, region, device.scale)
-    const our = meanColor(mine, region, device.scale)
-    const deltaE = deltaE76(ref, our)
-    return { region: region.name, reference: toHex(ref), ours: toHex(our), deltaE: Math.round(deltaE * 10) / 10, pass: deltaE <= region.tolerance }
-  })
-  const timeBox = { name: 'time', x: 45, y: 24, width: 60, height: 18, tolerance: 0 }
-  const refStyle = glyphStyle(reference, timeBox, device.scale)
-  const ourStyle = glyphStyle(mine, timeBox, device.scale)
-  const statusBar = { reference: refStyle, ours: ourStyle, pass: refStyle === ourStyle }
-  return { name, stem, regions, statusBar, pass: statusBar.pass && regions.every(r => r.pass) }
+  return [
+    statusGap,
+    { name: 'bottom-left-edge', x: 0, y: height - bottom, width: 140, height: bottom, tolerance: 4 },
+    { name: 'glass-collapsed', x: 161, y: 834, width: 8, height: 18, tolerance: 6 },
+  ]
 }
 
 interface RawImage { readonly data: Buffer, readonly width: number, readonly channels: number }
@@ -180,15 +222,31 @@ function meanColor(image: RawImage, region: Region, scale: number): Rgba {
   return { r: Math.round(sum.r / all.length), g: Math.round(sum.g / all.length), b: Math.round(sum.b / all.length), a: 1 }
 }
 
-function glyphStyle(image: RawImage, region: Region, scale: number): 'dark-content' | 'light-content' {
-  const luminances = pixels(image, region, scale).map(relativeLuminance).sort((a, b) => a - b)
-  const background = luminances[Math.floor(luminances.length / 2)]!
-  const darkest = luminances[0]!
-  const brightest = luminances.at(-1)!
-  return background - darkest >= brightest - background ? 'dark-content' : 'light-content'
+function glyphStyle(image: RawImage, region: Region, scale: number): StatusBarStyle {
+  // Content under the status bar varies across columns (stripes, text), so each column is compared
+  // with its own background just above and below the glyph box.
+  const luminanceAt = (x: number, y: number) => {
+    const i = (Math.round(y * scale) * image.width + Math.round(x * scale)) * image.channels
+    return relativeLuminance({ r: image.data[i]!, g: image.data[i + 1]!, b: image.data[i + 2]!, a: 1 })
+  }
+  let darker = 0
+  let lighter = 0
+  for (let x = region.x; x < region.x + region.width; x += 1 / scale) {
+    const background = (luminanceAt(x, region.y - GLYPH_BACKGROUND_GAP) + luminanceAt(x, region.y + region.height + GLYPH_BACKGROUND_GAP)) / 2
+    for (let y = region.y; y < region.y + region.height; y += 1 / scale) {
+      const delta = luminanceAt(x, y) - background
+      if (delta < -GLYPH_CONTRAST) darker++
+      if (delta > GLYPH_CONTRAST) lighter++
+    }
+  }
+  return darker >= lighter ? 'dark-content' : 'light-content'
 }
 
-function printTable(results: CaseResult[]) {
+/**
+ * Prints one line per case and a pass count.
+ * @param results comparison results
+ */
+export function printTable(results: readonly CaseResult[]) {
   for (const r of results) {
     const failed = r.regions.filter(x => !x.pass).map(x => `${x.region} ${x.reference}→${x.ours} ΔE${x.deltaE}`)
     if (!r.statusBar.pass) failed.push(`status-bar ${r.statusBar.reference}→${r.statusBar.ours}`)
