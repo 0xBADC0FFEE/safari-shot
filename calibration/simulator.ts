@@ -11,6 +11,7 @@ const DRIVER_DIR = join(import.meta.dirname, 'driver')
 const DRIVER_BUILD_DIR = join(import.meta.dirname, 'out', 'driver-build')
 const POLL_MS = 100
 const DRIVER_START_TIMEOUT_MS = 180_000
+const DRIVER_START_ATTEMPTS = 3
 const COMMAND_TIMEOUT_MS = 60_000
 
 export type DriverStep =
@@ -45,13 +46,29 @@ export async function openSimulatorSession(udid: string): Promise<SimulatorSessi
   await run('xcrun', ['simctl', 'status_bar', udid, 'override', '--time', '9:41', '--batteryState', 'charged',
     '--batteryLevel', '100', '--cellularBars', '4', '--wifiBars', '3', '--dataNetwork', 'wifi'])
   const xctestrun = await buildDriver(udid)
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await startDriver(udid, xctestrun)
+    } catch (error) {
+      // Right after boot, installing the test runner intermittently fails with IXErrorDomain "Failed to create promise".
+      if (attempt >= DRIVER_START_ATTEMPTS) throw error
+    }
+  }
+}
+
+async function startDriver(udid: string, xctestrun: string) {
   const mailbox = await mkdtemp(join(tmpdir(), 'simdriver-'))
   const driver = spawn('xcodebuild', ['test-without-building', '-xctestrun', xctestrun, '-destination', `id=${udid}`],
     { env: { ...process.env, TEST_RUNNER_SIMDRIVER_DIR: mailbox }, stdio: ['ignore', 'pipe', 'pipe'] })
   const driverLog: string[] = []
   driver.stdout.on('data', chunk => driverLog.push(String(chunk)))
   driver.stderr.on('data', chunk => driverLog.push(String(chunk)))
-  await waitFor(() => exists(join(mailbox, 'ready')), DRIVER_START_TIMEOUT_MS, () => `driver did not start:\n${driverLog.join('').slice(-4000)}`)
+  try {
+    await waitFor(() => exists(join(mailbox, 'ready')), DRIVER_START_TIMEOUT_MS, () => `driver did not start:\n${driverLog.join('').slice(-4000)}`)
+  } catch (error) {
+    driver.kill()
+    throw error
+  }
   return createSession(udid, mailbox, driver)
 }
 
