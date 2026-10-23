@@ -71,7 +71,7 @@ try {
 } finally {
   await session.perform([{ action: 'orient', label: 'portrait' }]).catch(() => {})
   await session.close()
-  server?.close()
+  server.close()
   if (failures.length) {
     console.error(`${failures.length} shots skipped:\n${failures.join('\n')}`)
     process.exitCode = 1

@@ -16,9 +16,9 @@ const CONTENT_TYPES: Record<string, string> = {
 /**
  * Serves corpus cases at /case/<name>, static pages, and stores reports POSTed to /report/<name>.
  * @param port TCP port on localhost
- * @returns the listening server, or null when another calibration server already holds the port
+ * @returns the listening server; rejects when the port is taken, since a stale server would serve an old corpus
  */
-export function startCalibrationServer(port = CALIBRATION_PORT): Promise<Server | null> {
+export function startCalibrationServer(port = CALIBRATION_PORT): Promise<Server> {
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost')
     const send = (status: number, type: string, body: string | Buffer) =>
@@ -49,7 +49,7 @@ export function startCalibrationServer(port = CALIBRATION_PORT): Promise<Server 
     }
   })
   return new Promise((resolve, reject) => {
-    server.once('error', (error: NodeJS.ErrnoException) => error.code === 'EADDRINUSE' ? resolve(null) : reject(error))
+    server.once('error', reject)
     server.listen(port, () => resolve(server))
   })
 }

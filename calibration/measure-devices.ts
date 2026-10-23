@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import sharp from 'sharp'
 import { openSimulatorSession, type SimulatorSession } from './simulator.ts'
-import { startCalibrationServer, CALIBRATION_PORT } from './server.ts'
+import { startCalibrationServer } from './server.ts'
 
 // Measures Safari geometry per device type with the `geometry` corpus page:
 // a blue page (glass pills read as light runs) with a narrow fixed red marker at top: 0.
@@ -14,6 +14,8 @@ const run = promisify(execFile)
 const OUT_DIR = join(import.meta.dirname, 'out', 'devices')
 const REPORTS_DIR = join(import.meta.dirname, 'out', 'reports')
 const LOAD_SETTLE_MS = 4000
+// Its own port, so a measurement can run while references are being captured.
+const MEASURE_PORT = 8766
 const SCROLL_SETTLE_MS = 1500
 const GLASS_LUMINANCE_LIFT = 40
 // Every current iPhone renders at 3x except the SE.
@@ -43,7 +45,7 @@ export interface DeviceMeasurement {
 }
 
 if (import.meta.main) {
-  const server = await startCalibrationServer()
+  const server = await startCalibrationServer(MEASURE_PORT)
   await mkdir(OUT_DIR, { recursive: true })
   const results: DeviceMeasurement[] = []
   try {
@@ -51,6 +53,7 @@ if (import.meta.main) {
       const udid = await ensureSimulator(type, values.runtime)
       const session = await openSimulatorSession(udid)
       try {
+        await dismissFirstRunTips(session)
         for (const orientation of values.orientations.split(',') as ('portrait' | 'landscape')[]) {
           await session.perform([{ action: 'orient', label: orientation }])
           await sleep(1000)
@@ -64,7 +67,7 @@ if (import.meta.main) {
       }
     }
   } finally {
-    server?.close()
+    server.close()
   }
   const runtimeTag = values.runtime.split('.').at(-1)
   await writeFile(join(OUT_DIR, `measurements-${runtimeTag}.json`), JSON.stringify(results, null, 2))
@@ -80,10 +83,18 @@ async function ensureSimulator(type: string, runtime: string) {
   return udid.trim()
 }
 
+// A fresh simulator shows a Safari tip over the toolbar on first load; scrolling once makes it go away.
+async function dismissFirstRunTips(session: SimulatorSession) {
+  await session.open(`http://localhost:${MEASURE_PORT}/case/geometry`)
+  await sleep(LOAD_SETTLE_MS)
+  await session.perform([{ action: 'swipe', label: 'up', velocity: 400 }, { action: 'swipe', label: 'down', velocity: 400 }])
+  await sleep(SCROLL_SETTLE_MS)
+}
+
 async function measure(session: SimulatorSession, type: string, orientation: string): Promise<DeviceMeasurement> {
   const slug = `${type.replace(/\W+/g, '-')}.${orientation}`
   const reportId = `geometry.${slug}`
-  await session.open(`http://localhost:${CALIBRATION_PORT}/case/geometry?report=${reportId}&t=${Date.now()}`)
+  await session.open(`http://localhost:${MEASURE_PORT}/case/geometry?report=${reportId}&t=${Date.now()}`)
   await sleep(LOAD_SETTLE_MS)
   const expandedPath = join(OUT_DIR, `${slug}.expanded.png`)
   await session.screenshot(expandedPath)
