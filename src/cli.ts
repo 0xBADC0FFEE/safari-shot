@@ -65,6 +65,7 @@ async function main() {
   if (values.help) return console.log(USAGE)
   if (values['list-devices']) return console.log(JSON.stringify(DEVICES, null, 2))
   if (!positionals.length) throw new UsageError('at least one URL is required')
+  const urls = positionals.map(normalizeUrl)
 
   const devices = values.device === 'all' ? DEVICES : values.device.split(',').map(id => findDevice(id.trim()))
   const scenarios = cartesian({
@@ -89,8 +90,7 @@ async function main() {
   const browser = await launch(values.engine)
   const manifest: ManifestEntry[] = []
   try {
-    for (const rawUrl of positionals) {
-      const url = normalizeUrl(rawUrl)
+    for (const url of urls) {
       for (const ios of iosVersions) {
         const shotDir = join(outDir, slug(url), `ios${ios}`)
         await mkdir(shotDir, { recursive: true })
@@ -136,6 +136,10 @@ function nonNegative(value: string, name: string) {
 function normalizeUrl(raw: string) {
   if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) return raw
   if (/^[./~]/.test(raw) || raw.endsWith('.html')) return new URL(`file://${resolve(raw)}`).href
+  // `npm run shot url --scroll 200` hands the CLI a bare "200": npm eats options that come without `--`.
+  if (!/^(localhost|[^\s/:]+\.[^\s/:]+)(:\d+)?(\/|$)/i.test(raw)) {
+    throw new UsageError(`"${raw}" is not a URL; with npm run, put options after --: npm run shot -- <url> [options]`)
+  }
   return `https://${raw}`
 }
 
