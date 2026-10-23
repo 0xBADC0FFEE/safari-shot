@@ -1,9 +1,9 @@
-import { CHROME_18, type Material } from './chrome.ts'
-import { BLACK, blendSourceOver, colorsAreSimilar, isVisible, withAlpha, luma, parseSimpleColor, toHex, type Rgba } from './color.ts'
+import { CHROME_18, LIQUID_GLASS_CHROME, type GlassBand, type GlassName, type Material } from './chrome.ts'
+import { BLACK, WHITE, blendSourceOver, colorsAreSimilar, isVisible, withAlpha, luma, parseSimpleColor, toHex, type Rgba } from './color.ts'
 import { hasFixedEdge, type FixedEdge, type PredominantColor } from './edges.ts'
 import { SIDES, type Side } from './page-probe.ts'
 import type { PageCapture } from './capture.ts'
-import type { Scenario } from './scenario.ts'
+import type { LiquidGlassVersion, Scenario, Theme } from './scenario.ts'
 
 /** What Safari paints under one obscured inset. */
 export type InsetFill =
@@ -16,19 +16,20 @@ export interface ScrollPocket {
   readonly strength: number
 }
 
-export type PanelPlan = Safari26Plan | Safari18Plan
+export type PanelPlan = LiquidGlassPlan | Safari18Plan
 
-export interface Safari26Plan {
-  readonly safari: '26'
+export interface LiquidGlassPlan {
+  readonly safari: LiquidGlassVersion
   readonly underPageBackground: Rgba
   readonly fills: Readonly<Record<Side, InsetFill | null>>
   /** Extra height the top extension grows by while rubber-banding with the refresh control. */
   readonly topExtensionGrowth: number
   readonly statusBar: StatusBarStyle
-  /** Liquid Glass switches to its dark variant over dark content. */
-  readonly glass: 'light' | 'dark'
-  /** Safari lightens the glass over a container's color extension and over the default dimming pocket, not over a ::backdrop. */
+  /** Liquid Glass variant the backdrop's luma selects. */
+  readonly glass: GlassName
+  /** In light appearance Safari lightens the glass over a container's color extension and over the default dimming pocket, not over a ::backdrop. */
   readonly glassWhitened: boolean
+  readonly appearance: Theme
   readonly toolbar: 'expanded' | 'collapsed'
   readonly refreshControl: boolean
   readonly themeColor: ThemeColorUse
@@ -61,25 +62,26 @@ interface ThemeColorUse {
   readonly usedByPanels: boolean
 }
 
-// Fitted on iOS 26.5 Simulator: #795548 (0.359) and green-and-red content (0.38) get white glyphs, #2e7d32 (0.403) black.
-const LIGHT_CONTENT_MAX_LUMA = 0.39
+// Fitted on iOS 26.5 Simulator. Light appearance: #795548 (0.359) and green-and-red content (0.38) get white glyphs,
+// #2e7d32 (0.403) black. Dark appearance: 80 % orange over #e3f2fd (0.673) white, #00ff00 (0.715) black.
+const LIGHT_CONTENT_MAX_LUMA: Readonly<Record<Theme, number>> = { light: 0.39, dark: 0.69 }
 // iOS 18.6 Simulator: #808080 (0.502) gets white glyphs, #ff7f7f (0.605) black.
 const LIGHT_CONTENT_MAX_LUMA_18 = 0.55
-// Fitted on iOS 26.5 Simulator swatches: #333333 (0.200) gets dark glass, #003f7f (0.213) light.
-export const DARK_GLASS_MAX_LUMA = 0.206
-// Fitted on body-gradient: with no sampleable bottom color, content is dimmed to 74% at the bottom edge.
-const DEFAULT_BOTTOM_POCKET: ScrollPocket = { color: BLACK, strength: 0.31 }
+// Fitted on body-gradient: with no sampleable bottom color, content is dimmed to 74% at the bottom edge in light
+// appearance and lightened with white at full pocket strength in dark appearance.
+const DEFAULT_BOTTOM_POCKET: Readonly<Record<Theme, ScrollPocket>> = { light: { color: BLACK, strength: 0.31 }, dark: { color: WHITE, strength: 1 } }
 
 /**
- * Decides what iOS 26 Safari paints in each obscured inset: `_updateFixedColorExtensionViews` and the scroll pocket.
+ * Decides what iOS 26+ Safari paints in each obscured inset: `_updateFixedColorExtensionViews` and the scroll pocket.
  * @param capture captured page state
  * @param scenario scroll state, theme and orientation
+ * @param safari Liquid Glass iOS version
  * @returns the panel plan to compose
  */
-export function planPanels(capture: PageCapture, scenario: Scenario): Safari26Plan {
+export function planPanels(capture: PageCapture, scenario: Scenario, safari: LiquidGlassVersion): LiquidGlassPlan {
   const { edges, underPageBackground, layout } = capture
   const underPagePocket: ScrollPocket = { color: underPageBackground, strength: 1 }
-  const pockets: Record<Side, ScrollPocket> = { top: underPagePocket, left: underPagePocket, right: underPagePocket, bottom: bottomPocket(capture) }
+  const pockets: Record<Side, ScrollPocket> = { top: underPagePocket, left: underPagePocket, right: underPagePocket, bottom: bottomPocket(capture, scenario.theme) }
   const fills = Object.fromEntries(SIDES.map(side => [side, insetFill(layout.obscured[side], edges[side], underPageBackground, pockets[side])])) as Record<Side, InsetFill | null>
   const topFill = fills.top
   const toolbarFill = fills[layout.geometry.toolbarEdge]
@@ -88,13 +90,16 @@ export function planPanels(capture: PageCapture, scenario: Scenario): Safari26Pl
     : 0
   const behindStatusBar = topFill?.kind === 'extension' ? topFill.color : capture.contentUnderStatusBar
   return {
-    safari: '26',
+    safari,
     underPageBackground,
     fills,
     topExtensionGrowth,
-    statusBar: glyphsOver(behindStatusBar, LIGHT_CONTENT_MAX_LUMA),
-    glass: luma(toolbarFill?.kind === 'extension' ? toolbarFill.color : capture.contentUnderToolbar) <= DARK_GLASS_MAX_LUMA ? 'dark' : 'light',
-    glassWhitened: toolbarFill?.kind === 'extension' ? !toolbarFill.fromDimmingLayer : toolbarFill?.kind === 'content' && toolbarFill.pocket === DEFAULT_BOTTOM_POCKET,
+    statusBar: glyphsOver(behindStatusBar, LIGHT_CONTENT_MAX_LUMA[scenario.theme]),
+    glass: glassFor(toolbarFill?.kind === 'extension' ? toolbarFill.color : capture.contentUnderToolbar, LIQUID_GLASS_CHROME[safari].glass.bands[scenario.theme]),
+    glassWhitened: scenario.theme === 'light' && (toolbarFill?.kind === 'extension'
+      ? !toolbarFill.fromDimmingLayer
+      : toolbarFill?.kind === 'content' && toolbarFill.pocket === DEFAULT_BOTTOM_POCKET.light),
+    appearance: scenario.theme,
     toolbar: layout.toolbar,
     refreshControl: scenario.state === 'overscroll-top',
     themeColor: { ...activeThemeColor(capture, scenario), usedByPanels: false },
@@ -147,13 +152,20 @@ function throughMaterial(color: Rgba, material: Material): Rgba {
 // feColorMatrix type="saturate"
 const SATURATE_LUMA_WEIGHTS = { r: 0.213, g: 0.715, b: 0.072 }
 
+function glassFor(backdrop: Rgba, bands: readonly GlassBand[]): GlassName {
+  const backdropLuma = luma(backdrop)
+  const band = bands.find(band => backdropLuma <= band.maxLuma)
+  if (!band) throw new Error(`no glass band covers luma ${backdropLuma}`)
+  return band.name
+}
+
 function glyphsOver(color: Rgba, lightContentMaxLuma: number): StatusBarStyle {
   return luma(color) <= lightContentMaxLuma ? 'light-content' : 'dark-content'
 }
 
-function bottomPocket(capture: PageCapture): ScrollPocket {
+function bottomPocket(capture: PageCapture, theme: Theme): ScrollPocket {
   const edge = bottomSample(capture)
-  if (edge.kind === 'void') return DEFAULT_BOTTOM_POCKET
+  if (edge.kind === 'void') return DEFAULT_BOTTOM_POCKET[theme]
   return { color: edge.kind === 'color' ? edge.color : capture.underPageBackground, strength: 1 }
 }
 

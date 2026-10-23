@@ -145,7 +145,7 @@ export function screenSize(device: DevicePreset, orientation: Orientation) {
  * @returns the orientations {@link safariGeometry} accepts
  */
 export function modeledOrientations(ios: IosVersion): readonly Orientation[] {
-  return ios === '26' ? ['portrait', 'landscape'] : ['portrait']
+  return ios === '18' ? ['portrait'] : ['portrait', 'landscape']
 }
 
 /**
@@ -160,9 +160,9 @@ export function safariGeometry(device: DevicePreset, ios: IosVersion, orientatio
   if (!modeledOrientations(ios).includes(orientation)) throw new Error(`iOS ${ios} ${orientation} is not modeled`)
   if (orientation === 'landscape') return LANDSCAPE
   const { top, bottom: homeIndicator } = device.safeArea.portrait
-  const [expanded, collapsed] = ios === '26'
-    ? [PORTRAIT_BOTTOM_INSET_EXPANDED, PORTRAIT_BOTTOM_INSET_COLLAPSED]
-    : [IOS18_TOOLBAR_EXPANDED + homeIndicator, IOS18_TOOLBAR_COLLAPSED + homeIndicator]
+  const [expanded, collapsed] = ios === '18'
+    ? [IOS18_TOOLBAR_EXPANDED + homeIndicator, IOS18_TOOLBAR_COLLAPSED + homeIndicator]
+    : [PORTRAIT_BOTTOM_INSET_EXPANDED, PORTRAIT_BOTTOM_INSET_COLLAPSED]
   return {
     toolbarEdge: 'bottom',
     statusBarVisible: true,

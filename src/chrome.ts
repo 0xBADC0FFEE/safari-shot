@@ -1,5 +1,7 @@
+import type { LiquidGlassVersion } from './scenario.ts'
+
 /** Safari 26 chrome drawing constants in points, measured from iOS 26.5 Simulator screenshots. */
-export interface Chrome26 {
+export interface LiquidGlassChrome {
   readonly fontFamily: string
   readonly toolbarExpanded: {
     readonly height: number
@@ -32,14 +34,24 @@ export interface Chrome26 {
     readonly shadow: string
     /** Share of white mixed into the glass fill when the plan marks it whitened. */
     readonly whitenedMix: number
-    readonly light: GlassVariant
-    readonly dark: GlassVariant
+    /** Per system appearance, glass variants by the backdrop's luma, ascending; the first band whose `maxLuma` covers it applies. */
+    readonly bands: Readonly<Record<'light' | 'dark', readonly GlassBand[]>>
   }
   /** Top scroll edge: the pocket color over content, alpha by distance from the screen top. */
   readonly topPocket: { readonly alphaStops: readonly AlphaStop[], readonly measuredTopInset: number }
   /** Bottom scroll edge under the expanded toolbar: the pocket color over content, alpha by distance from the screen bottom. */
   readonly bottomPocket: { readonly alphaStops: readonly AlphaStop[] }
   readonly refreshSpinner: { readonly offsetTop: number }
+  /** Glyph in the URL pill's leading slot, and in the circle right of the pill. */
+  readonly icons: { readonly pageMenu: 'reader' | 'lines', readonly trailing: 'more' | 'tabs' }
+}
+
+export type GlassName = 'dark' | 'dimmed' | 'light'
+
+export interface GlassBand {
+  readonly name: GlassName
+  readonly maxLuma: number
+  readonly variant: GlassVariant
 }
 
 export interface GlassVariant {
@@ -53,9 +65,60 @@ export interface GlassVariant {
 /** [distance from the screen edge in points, opacity]. */
 export type AlphaStop = readonly [number, number]
 
+// Fitted on iOS 26.5 Simulator swatches: #333333 (0.200) gets dark glass, #003f7f (0.213) light.
+export const DARK_GLASS_MAX_LUMA = 0.206
+
+const DARK_RIM = 'inset 0 0 0 0.6px rgba(255, 255, 255, 0.14)'
+
+const LIGHT_GLASS: GlassVariant = {
+  // saturate(2.25) · 0.48 + 0.538
+  colorMatrix: [
+    0.9524, -0.4291, -0.0433, 0, 0.538,
+    -0.1276, 0.6509, -0.0433, 0, 0.538,
+    -0.1276, -0.4291, 1.0367, 0, 0.538,
+    0, 0, 0, 1, 0,
+  ],
+  ink: '#000000',
+  disabledInk: 'rgba(60, 60, 67, 0.3)',
+  rim: 'inset 0.6px 0.6px 0.6px rgba(255, 255, 255, 0.7), inset -0.4px -0.4px 0.6px rgba(255, 255, 255, 0.35)',
+}
+
+const DARK_GLASS: GlassVariant = {
+  // saturate(2.25) · 0.53 + 0.098
+  colorMatrix: [
+    1.0515, -0.4738, -0.0477, 0, 0.098,
+    -0.141, 0.7187, -0.0477, 0, 0.098,
+    -0.141, -0.4738, 1.1448, 0, 0.098,
+    0, 0, 0, 1, 0,
+  ],
+  ink: '#ffffff',
+  disabledInk: 'rgba(235, 235, 245, 0.3)',
+  rim: DARK_RIM,
+}
+
+/**
+ * Builds the 4×5 feColorMatrix for saturate(s), then scale, then offset (sRGB 0–1).
+ * @param saturation 1 leaves colors unchanged
+ * @param scale channel multiplier
+ * @param offset added to every channel
+ * @returns row-major matrix values
+ */
+export function saturateScaleOffset(saturation: number, scale: number, offset: number): number[] {
+  const s = saturation
+  const rows = [
+    [0.2126 + 0.7874 * s, 0.7152 - 0.7152 * s, 0.0722 - 0.0722 * s],
+    [0.2126 - 0.2126 * s, 0.7152 + 0.2848 * s, 0.0722 - 0.0722 * s],
+    [0.2126 - 0.2126 * s, 0.7152 - 0.7152 * s, 0.0722 + 0.9278 * s],
+  ]
+  return [...rows.flatMap(row => [...row.map(v => v * scale), 0, offset]), 0, 0, 0, 1, 0]
+}
+
+const DIMMED = { s: 1.575, scale: 0.79, offset: 0.07 }
+const DARK_LIGHT = { s: 0.5, scale: 0.31, offset: 0.679 }
+
 const SYSTEM_FONT = `-apple-system, "SF Pro Text", "SF Pro", system-ui, "Inter", "Helvetica Neue", Arial, sans-serif`
 
-export const CHROME_26: Chrome26 = {
+export const CHROME_26: LiquidGlassChrome = {
   fontFamily: SYSTEM_FONT,
   toolbarExpanded: { height: 48, sideMargin: 34, gap: 7, bottomMargin: 34, fontSize: 17, pageMenuIconLeft: 16, reloadIconRight: 14 },
   toolbarCollapsed: { height: 32, bottomMargin: 14, paddingX: 18, fontSize: 12.6 },
@@ -66,29 +129,19 @@ export const CHROME_26: Chrome26 = {
     shadow: '0 11px 42px rgba(0, 0, 0, 0.16)',
     // Fitted on fixed-both, fixed-bottom and body-gradient; measured over light glass only.
     whitenedMix: 0.24,
-    light: {
-      // saturate(2.25) · 0.48 + 0.538
-      colorMatrix: [
-        0.9524, -0.4291, -0.0433, 0, 0.538,
-        -0.1276, 0.6509, -0.0433, 0, 0.538,
-        -0.1276, -0.4291, 1.0367, 0, 0.538,
-        0, 0, 0, 1, 0,
+    bands: {
+      light: [
+        { name: 'dark', maxLuma: DARK_GLASS_MAX_LUMA, variant: DARK_GLASS },
+        { name: 'light', maxLuma: 1, variant: LIGHT_GLASS },
       ],
-      ink: '#000000',
-      disabledInk: 'rgba(60, 60, 67, 0.3)',
-      rim: 'inset 0.6px 0.6px 0.6px rgba(255, 255, 255, 0.7), inset -0.4px -0.4px 0.6px rgba(255, 255, 255, 0.35)',
-    },
-    dark: {
-      // saturate(2.25) · 0.53 + 0.098
-      colorMatrix: [
-        1.0515, -0.4738, -0.0477, 0, 0.098,
-        -0.141, 0.7187, -0.0477, 0, 0.098,
-        -0.141, -0.4738, 1.1448, 0, 0.098,
-        0, 0, 0, 1, 0,
+      // Fitted with calibration/fit-glass.ts --theme dark: dark RMSE 0.1, dimmed 3.6, light 1.3. Below near-white one
+      // transform saturates mid-tones and darkens pastels; near-white backdrops get a light glass with black ink.
+      dark: [
+        { name: 'dark', maxLuma: DARK_GLASS_MAX_LUMA, variant: DARK_GLASS },
+        // #fce4ec (0.917) is dimmed; #ffff00 (0.928) and #e3f2fd (0.94) are light.
+        { name: 'dimmed', maxLuma: 0.922, variant: { ...DARK_GLASS, colorMatrix: saturateScaleOffset(DIMMED.s, DIMMED.scale, DIMMED.offset) } },
+        { name: 'light', maxLuma: 1, variant: { ...LIGHT_GLASS, colorMatrix: saturateScaleOffset(DARK_LIGHT.s, DARK_LIGHT.scale, DARK_LIGHT.offset) } },
       ],
-      ink: '#ffffff',
-      disabledInk: 'rgba(235, 235, 245, 0.3)',
-      rim: 'inset 0 0 0 0.6px rgba(255, 255, 255, 0.14)',
     },
   },
   // Measured on a red page edge under a green body (html-body-colors, scrolled).
@@ -96,7 +149,36 @@ export const CHROME_26: Chrome26 = {
   // Measured on a black stripe over white and a white stripe over black (pocket-stripes, pocket-stripes-dark).
   bottomPocket: { alphaStops: [[0, 0.85], [16, 0.83], [28, 0.81], [40, 0.77], [52, 0.67], [64, 0.54], [76, 0.37], [88, 0.22], [100, 0.11], [112, 0.04], [124, 0.01], [136, 0]] },
   refreshSpinner: { offsetTop: 30 },
+  icons: { pageMenu: 'reader', trailing: 'more' },
 }
+
+// Fitted with calibration/fit-glass.ts --ios 27. Light appearance: all 16 uniform backdrops at once, RMSE 0.7;
+// black stays mid-gray. Dark appearance: white ink throughout, two bands split at luma 0.6, RMSE 3.4 and 1.1.
+const GLASS_27: GlassVariant = { ...LIGHT_GLASS, colorMatrix: saturateScaleOffset(1.93, 0.478, 0.512) }
+const DARK_GLASS_27: GlassVariant = { ...DARK_GLASS, colorMatrix: saturateScaleOffset(1.53, 0.76, 0.142) }
+const DIMMED_GLASS_27: GlassVariant = { ...DARK_GLASS, colorMatrix: saturateScaleOffset(3.05, 0.316, 0.406) }
+
+/** iOS 27.0 Safari keeps the iOS 26 layout; one black-ink glass, no whitening, no scroll-edge pockets, a faint shadow. */
+export const CHROME_27: LiquidGlassChrome = {
+  ...CHROME_26,
+  glass: {
+    ...CHROME_26.glass,
+    shadow: '0 11px 42px rgba(0, 0, 0, 0.02)',
+    whitenedMix: 0,
+    bands: {
+      light: [{ name: 'light', maxLuma: 1, variant: GLASS_27 }],
+      dark: [
+        { name: 'dark', maxLuma: 0.6, variant: DARK_GLASS_27 },
+        { name: 'dimmed', maxLuma: 1, variant: DIMMED_GLASS_27 },
+      ],
+    },
+  },
+  topPocket: { ...CHROME_26.topPocket, alphaStops: [[0, 0]] },
+  bottomPocket: { alphaStops: [[0, 0]] },
+  icons: { pageMenu: 'lines', trailing: 'tabs' },
+}
+
+export const LIQUID_GLASS_CHROME: Readonly<Record<LiquidGlassVersion, LiquidGlassChrome>> = { '26': CHROME_26, '27': CHROME_27 }
 
 /** Safari 18 chrome drawing constants in points, measured from iOS 18.6 Simulator screenshots of iPhone 16 Pro. */
 export interface Chrome18 {

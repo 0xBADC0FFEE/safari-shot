@@ -73,15 +73,30 @@ Glyphs are white when the Rec. 709 luma of the gamma-encoded mean color under th
 
 Glass pills show the blurred backdrop through a color transform in sRGB, fitted on uniform swatches: [sim]
 
-| variant | when | transform | ink |
-|---|---|---|---|
-| light | backdrop luma > 0.206 | saturate 2.25, ×0.48, +0.538 | black |
-| dark | backdrop luma ≤ 0.206 | saturate 2.25, ×0.53, +0.098 | white |
+| Safari | appearance | variant | when (backdrop luma) | transform | ink |
+|---|---|---|---|---|---|
+| 26 | light | light | > 0.206 | saturate 2.25, ×0.48, +0.538 | black |
+| 26 | both | dark | ≤ 0.206 | saturate 2.25, ×0.53, +0.098 | white |
+| 26 | dark | dimmed | 0.206–0.922 | saturate 1.575, ×0.79, +0.07 | white |
+| 26 | dark | light | > 0.922 | saturate 0.5, ×0.31, +0.679 | black |
+| 27 | light | light | any | saturate 1.93, ×0.478, +0.512 | black |
+| 27 | dark | dark | ≤ 0.6 | saturate 1.53, ×0.76, +0.142 | white |
+| 27 | dark | dimmed | > 0.6 | saturate 3.05, ×0.316, +0.406 | white |
 
 The backdrop is the bottom extension color, else the mean content under the toolbar: `#333333` gets
 dark glass, `#003f7f` light. Over a container's color extension, and over the default black pocket,
 24 % white is mixed into the fill; over a `::backdrop` extension it is not. The pills cast a shadow
 of about 0 11 px 42 px at 16 % black. [sim]
+
+In dark appearance, pages that declare dark support (root `color-scheme` or
+`<meta name="color-scheme">`) sit on black instead of white, glyphs switch at luma 0.69 instead of 0.39,
+the default bottom pocket is white at full strength, and the glass is never whitened. [sim]
+
+iOS 27.0 keeps the iOS 26 geometry (layout viewport 714 expanded, 754 collapsed on iPhone 17 Pro); its
+glass is one variant over every backdrop (black turns mid-gray), never whitened, with a shadow of
+about 2 % black; content scrolls under the toolbar and the status bar with no scroll-edge pocket. The
+pill's page-menu icon is three lines and the trailing circle holds Tabs instead of More. In dark appearance
+the iOS 27 glass keeps white ink over every backdrop, through two transforms split at luma 0.6. [sim]
 
 ## iOS 18 (simplified model)
 
@@ -107,8 +122,12 @@ Observed on the iOS 18.6 Simulator, iPhone 16 Pro, portrait, light appearance. [
 
 - Fonts: Safari renders with SF Pro; Playwright WebKit on Linux falls back to other fonts, so text
   rows can sit a few points off. Panel colors are unaffected.
-- Dark appearance, landscape and standalone (home screen) mode are not calibrated yet; other devices
-  have measured geometry but no color references.
+- Landscape and standalone (home screen) mode are not calibrated yet; other devices have measured
+  geometry but no color references.
+- iOS 27: a scrolled hero under the status bar is dimmed by something the model omits (`top-hero`,
+  ΔE 6), and the glass over striped or two-color backdrops misses by ΔE 11–43.
+- iOS 26 dark appearance: glass over striped or mixed backdrops, collapsed glass over light content,
+  and the shadow under the toolbar over saturated colors are off by ΔE 4–78.
 - The top pocket on devices other than the iPhone 17 Pro is scaled to their status bar inset, unmeasured.
 - Status bar glyphs over mixed content near the 0.39 switch can come out wrong
   (`html-body-colors`, scrolled: Safari white, model black).

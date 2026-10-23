@@ -10,8 +10,11 @@ export type Orientation = typeof ORIENTATIONS[number]
 export const MODES = ['browser', 'standalone'] as const
 export type Mode = typeof MODES[number]
 
-export const IOS_VERSIONS = ['26', '18'] as const
+export const IOS_VERSIONS = ['27', '26', '18'] as const
 export type IosVersion = typeof IOS_VERSIONS[number]
+/** Versions with the Liquid Glass toolbar; they share the panel rules and differ in glass and icons. */
+export type LiquidGlassVersion = Exclude<IosVersion, '18'>
+export const DEFAULT_IOS: IosVersion = '27'
 
 /** One rendering of a page: everything that changes what Safari paints around it. */
 export interface Scenario {

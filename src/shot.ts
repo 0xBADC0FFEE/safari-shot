@@ -1,6 +1,6 @@
 import type { Browser } from 'playwright'
 import { capturePage, type PageCapture } from './capture.ts'
-import { planPanels, planPanels18, type PanelPlan, type Safari18Plan, type Safari26Plan } from './model.ts'
+import { planPanels, planPanels18, type PanelPlan, type Safari18Plan, type LiquidGlassPlan } from './model.ts'
 import { composeScreenshot } from './compose.ts'
 import { toHex, type Rgba } from './color.ts'
 import type { FixedEdge, FixedEdges } from './edges.ts'
@@ -40,7 +40,7 @@ export interface ShotReport {
     readonly bottom: PanelReport | null
     readonly statusBar: PanelPlan['statusBar']
     /** Liquid Glass variant; null before iOS 26. */
-    readonly glass: Safari26Plan['glass'] | null
+    readonly glass: LiquidGlassPlan['glass'] | null
     readonly overscrollColor: string
   }
   readonly underPageBackground: string
@@ -73,7 +73,7 @@ type EdgesReport = Readonly<Record<string, { readonly kind: FixedEdge['kind'], r
  */
 export async function takeShot(browser: Browser, request: ShotRequest): Promise<Shot> {
   const capture = await capturePage(browser, request)
-  const plan = request.ios === '26' ? planPanels(capture, request.scenario) : planPanels18(capture, request.scenario)
+  const plan = request.ios === '18' ? planPanels18(capture, request.scenario) : planPanels(capture, request.scenario, request.ios)
   const png = await composeScreenshot(browser, { capture, plan, device: request.device, hostLabel: hostLabel(capture.facts.url) })
   return { png, report: buildReport(request, capture, plan) }
 }
@@ -100,7 +100,7 @@ function buildReport(request: ShotRequest, capture: PageCapture, plan: PanelPlan
       layoutViewport: { top: layout.viewportTop, width: facts.viewport.width, height: facts.viewport.height },
       scrollY: layout.scrollY,
     },
-    panels: plan.safari === '26' ? panels26(plan) : panels18(plan),
+    panels: plan.safari === '18' ? panels18(plan) : panelsLiquidGlass(plan),
     underPageBackground: toHex(plan.underPageBackground),
     themeColor: { color: plan.themeColor.color ? toHex(plan.themeColor.color) : null, source: plan.themeColor.source, usedByPanels: plan.themeColor.usedByPanels },
     fixedEdges: { atLoad: edgesReport(capture.edgesAtLoad), final: edgesReport(capture.edges) },
@@ -115,8 +115,8 @@ function buildReport(request: ShotRequest, capture: PageCapture, plan: PanelPlan
   }
 }
 
-function panels26(plan: Safari26Plan): ShotReport['panels'] {
-  const panel = (fill: Safari26Plan['fills']['top']): PanelReport | null => !fill ? null : {
+function panelsLiquidGlass(plan: LiquidGlassPlan): ShotReport['panels'] {
+  const panel = (fill: LiquidGlassPlan['fills']['top']): PanelReport | null => !fill ? null : {
     fill: fill.kind,
     color: toHex(fill.kind === 'extension' ? fill.color : fill.pocket.color),
     reason: fill.reason,

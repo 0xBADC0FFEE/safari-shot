@@ -1,8 +1,8 @@
 # safari-shot
 
-Screenshots of web pages as iOS 26 Safari shows them on iPhone — including what Safari paints
-under the status bar and the Liquid Glass toolbar — without a simulator. A simplified iOS 18 model
-(`--ios 18`, portrait) covers pre–Liquid Glass Safari. Runs anywhere Playwright
+Screenshots of web pages as iOS 27 Safari shows them on iPhone — including what Safari paints
+under the status bar and the Liquid Glass toolbar — without a simulator. `--ios 26` selects the
+iOS 26 glass; a simplified iOS 18 model (`--ios 18`, portrait) covers pre–Liquid Glass Safari. Runs anywhere Playwright
 runs (Linux, Docker, macOS).
 
 ```bash
@@ -13,7 +13,7 @@ safari-shot https://example.com
 ```text
 safari-shots/
   example-com/
-    ios26/
+    ios27/
       iphone-17-pro.portrait.light.initial.png  # 1206×2622, same framing as a Simulator screenshot
       iphone-17-pro.portrait.light.initial.json # why each panel looks the way it does
   manifest.json                                  # every shot of the run; also printed to stdout
@@ -28,7 +28,7 @@ safari-shot <url...> [options]
 | Option | Values | Default |
 |---|---|---|
 | `-d, --device` | preset ids, comma-separated, or `all` (`--list-devices` prints them) | `iphone-17-pro` |
-| `--ios` | `26`, `18`, `all` (18: portrait only) | `26` |
+| `--ios` | `27`, `26`, `18`, `all` (18: portrait only) | `27` |
 | `-s, --state` | `initial`, `scrolled`, `overscroll-top`, `overscroll-bottom`, `all` | `scrolled` with `--scroll`, else `initial` |
 | `-t, --theme` | `light`, `dark`, `all` | `light` |
 | `-o, --orientation` | `portrait`, `landscape` | `portrait` |
@@ -94,8 +94,8 @@ Safari in the iOS Simulator. Agents using the CLI never need it.
 
 ```bash
 node calibration/capture-references.ts --udid <simulator-udid>   # Safari screenshots of every corpus page
-node calibration/compare.ts --sheets                              # re-render and compare panel regions
-node calibration/fit-glass.ts                                     # refit the light and dark glass matrices
+node calibration/compare.ts --ios 27 --sheets                     # re-render and compare panel regions
+node calibration/fit-glass.ts --ios 27 --theme dark               # refit the glass bands of one appearance
 node calibration/fit-glass.ts --ios 18                            # refit the iOS 18 toolbar material
 node calibration/measure-devices.ts --types "iPhone 17,iPhone Air"
 ```

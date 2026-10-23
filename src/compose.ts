@@ -1,8 +1,8 @@
 import type { Browser } from 'playwright'
 import { toCss, type Rgba } from './color.ts'
 import type { PageCapture, Band } from './capture.ts'
-import type { PanelPlan, Safari18Plan, Safari26Plan, ScrollPocket } from './model.ts'
-import { CHROME_18, CHROME_26, type Chrome26, type GlassVariant, type Material } from './chrome.ts'
+import type { PanelPlan, Safari18Plan, LiquidGlassPlan, ScrollPocket } from './model.ts'
+import { CHROME_18, LIQUID_GLASS_CHROME, type LiquidGlassChrome, type GlassVariant, type Material } from './chrome.ts'
 import type { DevicePreset, StatusBarLayout } from './devices.ts'
 
 export interface ComposeInput {
@@ -68,7 +68,7 @@ function imageAssets({ images }: PageCapture): [string, Buffer][] {
  */
 export function composeHtml(input: ComposeInput): string {
   const { plan } = input
-  return plan.safari === '26' ? composeHtml26(input, plan) : composeHtml18(input, plan)
+  return plan.safari === '18' ? composeHtml18(input, plan) : composeLiquidGlassHtml(input, plan)
 }
 
 function content({ layout, images }: PageCapture, underPageBackground: Rgba) {
@@ -85,10 +85,10 @@ function content({ layout, images }: PageCapture, underPageBackground: Rgba) {
   ].join('')
 }
 
-function composeHtml26({ capture, device, hostLabel }: ComposeInput, plan: Safari26Plan): string {
+function composeLiquidGlassHtml({ capture, device, hostLabel }: ComposeInput, plan: LiquidGlassPlan): string {
   const { layout } = capture
   const { screen, obscured } = layout
-  const chrome = CHROME_26
+  const chrome = LIQUID_GLASS_CHROME[plan.safari]
   const topPocketColor = plan.fills.top?.kind === 'extension' ? plan.fills.top.color : plan.underPageBackground
   const under = [
     content(capture, plan.underPageBackground),
@@ -97,7 +97,7 @@ function composeHtml26({ capture, device, hostLabel }: ComposeInput, plan: Safar
     obscured.top > 0 ? topPocket(topPocketColor, screen.width, obscured.top, chrome) : '',
     plan.toolbar === 'expanded' && plan.fills.bottom?.kind === 'content' ? bottomPocket(plan.fills.bottom.pocket, screen, chrome) : '',
   ].join('')
-  const variant = chrome.glass[plan.glass]
+  const variant = chrome.glass.bands[plan.appearance].find(band => band.name === plan.glass)!.variant
   const shapes = toolbarShapes(layout, device, hostLabel, chrome, variant)
 
   return `<!doctype html><html><head><meta charset="utf-8"><style>
@@ -117,7 +117,7 @@ function composeHtml26({ capture, device, hostLabel }: ComposeInput, plan: Safar
   </body></html>`
 }
 
-function glassFilter(chrome: Chrome26, variant: GlassVariant, whitened: boolean) {
+function glassFilter(chrome: LiquidGlassChrome, variant: GlassVariant, whitened: boolean) {
   const colorMatrix = whitened ? mixWithWhite(variant.colorMatrix, chrome.glass.whitenedMix) : variant.colorMatrix
   const matrix = colorMatrix.map(n => n.toFixed(4)).join(' ')
   return `<svg width="0" height="0" style="position:absolute"><filter id="glass" x="-10%" y="-10%" width="120%" height="120%" color-interpolation-filters="sRGB">
@@ -142,12 +142,12 @@ function glass(shape: GlassShape, under: string) {
   </div>`
 }
 
-function extension(fill: Safari26Plan['fills']['top'], top: number, height: number, width: number) {
+function extension(fill: LiquidGlassPlan['fills']['top'], top: number, height: number, width: number) {
   if (fill?.kind !== 'extension' || height <= 0) return ''
   return `<div style="position:absolute;left:0;top:${top}px;width:${width}px;height:${height}px;background:${toCss(fill.color)}"></div>`
 }
 
-function topPocket(color: Rgba, width: number, topInset: number, chrome: Chrome26) {
+function topPocket(color: Rgba, width: number, topInset: number, chrome: LiquidGlassChrome) {
   const { alphaStops, measuredTopInset } = chrome.topPocket
   // Measured on one status bar height only; other devices assume the fade scales with it.
   const scale = topInset / measuredTopInset
@@ -156,7 +156,7 @@ function topPocket(color: Rgba, width: number, topInset: number, chrome: Chrome2
   return `<div style="position:absolute;left:0;top:0;width:${width}px;height:${height}px;background:linear-gradient(to bottom, ${gradient})"></div>`
 }
 
-function bottomPocket(pocket: ScrollPocket, screen: { width: number, height: number }, chrome: Chrome26) {
+function bottomPocket(pocket: ScrollPocket, screen: { width: number, height: number }, chrome: LiquidGlassChrome) {
   const stops = chrome.bottomPocket.alphaStops
   const height = stops.at(-1)![0]
   const gradient = stops.map(([distance, alpha]) => `${rgba(pocket.color, alpha * pocket.strength)} ${distance}px`).join(', ')
@@ -284,13 +284,13 @@ function statusGlyphs(color: string, scale: number) {
   }
 }
 
-function toolbarShapes(layout: PageCapture['layout'], device: DevicePreset, hostLabel: string, chrome: Chrome26, variant: GlassVariant): GlassShape[] {
+function toolbarShapes(layout: PageCapture['layout'], device: DevicePreset, hostLabel: string, chrome: LiquidGlassChrome, variant: GlassVariant): GlassShape[] {
   const { screen, toolbar } = layout
   if (layout.geometry.toolbarEdge === 'top') return toolbar === 'expanded' ? landscapeToolbar(screen, device.safeArea.landscape.side, hostLabel, chrome, variant) : []
   return toolbar === 'expanded' ? expandedToolbar(screen, hostLabel, chrome, variant) : collapsedToolbar(screen, hostLabel, chrome, variant)
 }
 
-function landscapeToolbar(screen: { width: number }, safeAreaSide: number, hostLabel: string, chrome: Chrome26, variant: GlassVariant): GlassShape[] {
+function landscapeToolbar(screen: { width: number }, safeAreaSide: number, hostLabel: string, chrome: LiquidGlassChrome, variant: GlassVariant): GlassShape[] {
   const t = chrome.toolbarLandscape
   const ink = variant.ink
   const side = safeAreaSide + t.safeAreaGap
@@ -303,8 +303,7 @@ function landscapeToolbar(screen: { width: number }, safeAreaSide: number, hostL
     circle(side + t.height + t.gap, icon('<path d="M11 5.5C9 4 6 3.6 2.5 4.2v13C6 16.6 9 17 11 18.5c2-1.5 5-1.9 8.5-1.3v-13C16 3.6 13 4 11 5.5zM11 5.5v13"/>')),
     {
       left: pillLeft, top: t.top, width: t.urlPillWidth, height: t.height, radius: t.height / 2,
-      inner: `<svg style="position:absolute;left:12px;top:${t.height / 2 - 9}px" width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="${ink}" stroke-width="1.6" stroke-linecap="round">
-          <rect x="2" y="1.5" width="14" height="8.5" rx="2"/><path d="M2 13.2h14M2 16.4h9"/></svg>
+      inner: `${pageMenuIcon(chrome.icons.pageMenu, ink, 12, t.height)}
         <span style="font-size:${t.fontSize}px;font-weight:500;color:${ink};letter-spacing:-0.3px;white-space:nowrap;max-width:${t.urlPillWidth - 90}px;overflow:hidden;text-overflow:ellipsis">${escapeHtml(hostLabel)}</span>
         <svg style="position:absolute;right:12px;top:${t.height / 2 - 10}px" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="${ink}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <path d="M15.6 7.2A6.6 6.6 0 1 0 16.6 11"/><path d="M16.2 2.6v4.8h-4.8"/></svg>`,
@@ -314,13 +313,13 @@ function landscapeToolbar(screen: { width: number }, safeAreaSide: number, hostL
       inner: [
         icon('<path d="M11 2.5v11M7 6.5l4-4 4 4M6.5 9.5H5v10h12v-10h-1.5"/>'),
         icon('<path d="M11 4v14M4 11h14"/>'),
-        icon('<rect x="6.5" y="6.5" width="12" height="12" rx="2.5"/><path d="M15.5 3.5h-9a3 3 0 0 0-3 3v9"/>'),
+        icon(TABS_ICON_PATH),
       ].map(svg => `<div style="width:${t.height}px;display:flex;justify-content:center">${svg}</div>`).join(''),
     },
   ]
 }
 
-function expandedToolbar(screen: { width: number, height: number }, hostLabel: string, chrome: Chrome26, variant: GlassVariant): GlassShape[] {
+function expandedToolbar(screen: { width: number, height: number }, hostLabel: string, chrome: LiquidGlassChrome, variant: GlassVariant): GlassShape[] {
   const t = chrome.toolbarExpanded
   const top = screen.height - t.bottomMargin - t.height
   const pillLeft = t.sideMargin + t.height + t.gap
@@ -331,17 +330,29 @@ function expandedToolbar(screen: { width: number, height: number }, hostLabel: s
     circle(t.sideMargin, `<svg width="12" height="20" viewBox="0 0 12 20"><path d="M10 2 2 10l8 8" fill="none" stroke="${variant.disabledInk}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`),
     {
       left: pillLeft, top, width: pillWidth, height: t.height, radius: t.height / 2,
-      inner: `<svg style="position:absolute;left:${t.pageMenuIconLeft}px;top:${t.height / 2 - 9}px" width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="${ink}" stroke-width="1.6" stroke-linecap="round">
-          <rect x="2" y="1.5" width="14" height="8.5" rx="2"/><path d="M2 13.2h14M2 16.4h9"/></svg>
+      inner: `${pageMenuIcon(chrome.icons.pageMenu, ink, t.pageMenuIconLeft, t.height)}
         <span style="font-size:${t.fontSize}px;font-weight:500;color:${ink};letter-spacing:-0.3px;white-space:nowrap;max-width:${pillWidth - 90}px;overflow:hidden;text-overflow:ellipsis">${escapeHtml(hostLabel)}</span>
         <svg style="position:absolute;right:${t.reloadIconRight}px;top:${t.height / 2 - 10}px" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="${ink}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <path d="M15.6 7.2A6.6 6.6 0 1 0 16.6 11"/><path d="M16.2 2.6v4.8h-4.8"/></svg>`,
     },
-    circle(screen.width - t.sideMargin - t.height, `<svg width="22" height="6" viewBox="0 0 22 6" fill="${ink}"><circle cx="3" cy="3" r="2.4"/><circle cx="11" cy="3" r="2.4"/><circle cx="19" cy="3" r="2.4"/></svg>`),
+    circle(screen.width - t.sideMargin - t.height, chrome.icons.trailing === 'tabs'
+      ? `<svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="${ink}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${TABS_ICON_PATH}</svg>`
+      : `<svg width="22" height="6" viewBox="0 0 22 6" fill="${ink}"><circle cx="3" cy="3" r="2.4"/><circle cx="11" cy="3" r="2.4"/><circle cx="19" cy="3" r="2.4"/></svg>`),
   ]
 }
 
-function collapsedToolbar(screen: { width: number, height: number }, hostLabel: string, chrome: Chrome26, variant: GlassVariant): GlassShape[] {
+const TABS_ICON_PATH = '<rect x="6.5" y="6.5" width="12" height="12" rx="2.5"/><path d="M15.5 3.5h-9a3 3 0 0 0-3 3v9"/>'
+
+const PAGE_MENU_PATHS: Readonly<Record<LiquidGlassChrome['icons']['pageMenu'], string>> = {
+  reader: '<rect x="2" y="1.5" width="14" height="8.5" rx="2"/><path d="M2 13.2h14M2 16.4h9"/>',
+  lines: '<path d="M2 4h14M2 9h14M2 14h9"/>',
+}
+
+function pageMenuIcon(kind: LiquidGlassChrome['icons']['pageMenu'], ink: string, left: number, pillHeight: number) {
+  return `<svg style="position:absolute;left:${left}px;top:${pillHeight / 2 - 9}px" width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="${ink}" stroke-width="1.6" stroke-linecap="round">${PAGE_MENU_PATHS[kind]}</svg>`
+}
+
+function collapsedToolbar(screen: { width: number, height: number }, hostLabel: string, chrome: LiquidGlassChrome, variant: GlassVariant): GlassShape[] {
   const t = chrome.toolbarCollapsed
   const width = Math.round(textWidth(hostLabel, t.fontSize) + 2 * t.paddingX)
   return [{

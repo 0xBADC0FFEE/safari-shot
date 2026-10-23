@@ -20,7 +20,25 @@ after(async () => {
 // they run as todo so a fix shows up without failing the suite.
 const IOS18_FIXED_BAR_TINT = 'status band: Safari tints with this fixed top bar but not with fixed-top or fixed-top-nobg-child; the rule is unknown'
 const IOS18_OVERLAY = 'status band: Safari does not sample the page top through a full-screen overlay or backdrop'
+const IOS26_DARK_GLASS = 'dark-appearance glass: the three luma bands miss this mixed or striped backdrop'
+const IOS26_DARK_COLLAPSED = 'dark-appearance collapsed glass: fitted on the expanded toolbar only, it is too opaque over light content'
+const IOS26_DARK_SHADOW = 'dark-appearance glass shadow: content just below the toolbar is ΔE 4–7 off over saturated colors'
+const IOS27_MIXED_BACKDROP = 'iOS 27 glass: the mean backdrop does not predict the fill over striped or two-color content'
+const IOS27_TOP_EDGE = 'iOS 27 top scroll edge: Safari tints the scrolled content under the status bar in a way the model does not draw'
+const IOS27_GLYPHS = 'iOS 27 status bar: the mean-luma rule picks the wrong glyphs over a gradient or two-color top'
+// `<case> <theme>.<state>` on the iPhone 17 Pro in portrait.
+const gaps = (ios: string, gap: string, ...stems: string[]) => Object.fromEntries(stems.map(stem => [`ios${ios} ${stem.replace(' ', ' iphone-17-pro.portrait.')}`, gap]))
 const KNOWN_GAPS: Readonly<Record<string, string>> = {
+  ...gaps('27', IOS27_MIXED_BACKDROP, 'html-body-colors light.initial', 'html-body-colors dark.initial', 'pocket-stripes light.initial',
+    'pocket-stripes dark.initial', 'pocket-stripes-dark light.initial', 'pocket-stripes-dark dark.initial'),
+  ...gaps('27', IOS27_TOP_EDGE, 'top-hero light.scrolled', 'top-hero dark.scrolled', 'body-gradient dark.scrolled', 'canvas-top dark.scrolled'),
+  ...gaps('27', IOS27_GLYPHS, 'body-gradient light.overscroll-bottom', 'body-gradient dark.overscroll-bottom', 'html-body-colors light.scrolled'),
+  ...gaps('27', 'iOS 27 dark: Safari leaves the status bar black over this fixed top layer; the model paints the page color',
+    'fixed-top-backdrop dark.scrolled', 'fixed-top-gradient dark.overscroll-top'),
+  ...gaps('26', IOS26_DARK_GLASS, 'fixed-top-alpha dark.initial', 'fixed-top-alpha-high dark.initial', 'geometry dark.initial', 'geometry dark.scrolled', 'pocket-stripes dark.initial', 'swatch-003f7f dark.scrolled'),
+  ...gaps('26', IOS26_DARK_COLLAPSED, 'fixed-top-alpha dark.scrolled', 'fixed-top-alpha-high dark.scrolled', 'fixed-top-backdrop dark.scrolled', 'pocket-stripes dark.scrolled', 'swatch-ffff00 dark.scrolled'),
+  ...gaps('26', IOS26_DARK_SHADOW, 'swatch-0000ff dark.scrolled', 'swatch-00ff00 dark.initial', 'swatch-00ff00 dark.scrolled', 'swatch-ff00ff dark.scrolled'),
+  ...gaps('26', 'status bar: the glyph style misses over a body gradient once it scrolls past the top', 'body-gradient dark.scrolled', 'body-gradient dark.overscroll-bottom'),
   'ios26 html-body-colors iphone-17-pro.portrait.light.scrolled':
     'status bar: white glyphs over green body with red html sides; the mean-luma rule puts it at 0.404, past the 0.39 switch',
   'ios18 fixed-both': IOS18_FIXED_BAR_TINT,

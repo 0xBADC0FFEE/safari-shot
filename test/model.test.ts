@@ -41,30 +41,30 @@ function capture(edges: FixedEdges, overrides: Partial<PageCapture> = {}, viewpo
 const orangeTop: FixedEdges = { ...NO_EDGES, top: { kind: 'color', color: ORANGE, reason: 'background-color of header', container: 'header', containerId: '1', fromDimmingLayer: false } }
 
 test('a fixed top edge color becomes the top extension', () => {
-  const plan = planPanels(capture(orangeTop), INITIAL)
+  const plan = planPanels(capture(orangeTop), INITIAL, '26')
   assert.deepEqual(plan.fills.top, { kind: 'extension', color: ORANGE, fromDimmingLayer: false, reason: 'background-color of header' })
   assert.equal(plan.fills.bottom?.kind, 'content')
 })
 
 test('a multiple edge paints the under-page color', () => {
   const edges: FixedEdges = { ...NO_EDGES, top: { kind: 'multiple', reason: 'backdrop-filter', container: 'header', containerId: '1' } }
-  const plan = planPanels(capture(edges), INITIAL)
+  const plan = planPanels(capture(edges), INITIAL, '26')
   assert.equal(plan.fills.top?.kind === 'extension' && plan.fills.top.color, WHITE)
 })
 
 test('sides without an obscured inset get no fill', () => {
-  const plan = planPanels(capture(orangeTop), INITIAL)
+  const plan = planPanels(capture(orangeTop), INITIAL, '26')
   assert.equal(plan.fills.left, null)
 })
 
 test('the top extension grows into the rubber-band gap when it differs from the page background', () => {
-  const plan = planPanels(capture(orangeTop, {}, 62 + 150), { ...INITIAL, state: 'overscroll-top' })
+  const plan = planPanels(capture(orangeTop, {}, 62 + 150), { ...INITIAL, state: 'overscroll-top' }, '26')
   assert.equal(plan.topExtensionGrowth, 150)
 })
 
 test('the top extension does not grow when it matches the page background', () => {
   const whiteTop: FixedEdges = { ...NO_EDGES, top: { kind: 'color', color: WHITE, reason: 'x', container: 'header', containerId: '1', fromDimmingLayer: false } }
-  const plan = planPanels(capture(whiteTop, {}, 62 + 150), { ...INITIAL, state: 'overscroll-top' })
+  const plan = planPanels(capture(whiteTop, {}, 62 + 150), { ...INITIAL, state: 'overscroll-top' }, '26')
   assert.equal(plan.topExtensionGrowth, 0)
 })
 
@@ -85,24 +85,24 @@ test('the first matching theme-color meta wins over the manifest', () => {
 })
 
 test('glass turns dark over dark content and stays light over mid-tone content', () => {
-  assert.equal(planPanels(capture(NO_EDGES, { contentUnderToolbar: { r: 51, g: 51, b: 51, a: 1 } }), INITIAL).glass, 'dark')
-  assert.equal(planPanels(capture(NO_EDGES, { contentUnderToolbar: { r: 0, g: 63, b: 127, a: 1 } }), INITIAL).glass, 'light')
+  assert.equal(planPanels(capture(NO_EDGES, { contentUnderToolbar: { r: 51, g: 51, b: 51, a: 1 } }), INITIAL, '26').glass, 'dark')
+  assert.equal(planPanels(capture(NO_EDGES, { contentUnderToolbar: { r: 0, g: 63, b: 127, a: 1 } }), INITIAL, '26').glass, 'light')
 })
 
 test('status bar glyphs turn white over red but stay black over mid green', () => {
-  assert.equal(planPanels(capture(NO_EDGES, { contentUnderStatusBar: { r: 255, g: 0, b: 0, a: 1 } }), INITIAL).statusBar, 'light-content')
-  assert.equal(planPanels(capture(NO_EDGES, { contentUnderStatusBar: { r: 46, g: 125, b: 50, a: 1 } }), INITIAL).statusBar, 'dark-content')
+  assert.equal(planPanels(capture(NO_EDGES, { contentUnderStatusBar: { r: 255, g: 0, b: 0, a: 1 } }), INITIAL, '26').statusBar, 'light-content')
+  assert.equal(planPanels(capture(NO_EDGES, { contentUnderStatusBar: { r: 46, g: 125, b: 50, a: 1 } }), INITIAL, '26').statusBar, 'dark-content')
 })
 
 test('the bottom pocket takes the sampled bottom edge color', () => {
-  const plan = planPanels(capture(NO_EDGES, { contentBottomEdge: { kind: 'color', color: ORANGE } }), INITIAL)
+  const plan = planPanels(capture(NO_EDGES, { contentBottomEdge: { kind: 'color', color: ORANGE } }), INITIAL, '26')
   assert.deepEqual(plan.fills.bottom?.kind === 'content' && plan.fills.bottom.pocket, { color: ORANGE, strength: 1 })
   assert.equal(plan.glassWhitened, false)
 })
 
 test('an unsampleable bottom edge dims content and whitens the glass', () => {
   const imageAtBottom = capture(NO_EDGES, { facts: facts({ sampleInvalid: { top: [], bottom: [null, 'image'] } }), contentBottomEdge: { kind: 'color', color: ORANGE } })
-  const plan = planPanels(imageAtBottom, INITIAL)
+  const plan = planPanels(imageAtBottom, INITIAL, '26')
   assert.equal(plan.fills.bottom?.kind === 'content' && plan.fills.bottom.pocket.color, BLACK)
   assert.equal(plan.glassWhitened, true)
 })

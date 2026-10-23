@@ -4,7 +4,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { webkit, chromium, type Browser } from 'playwright'
 import { DEVICES, DEFAULT_DEVICE_ID, findDevice, modeledOrientations } from './devices.ts'
-import { SCROLL_STATES, THEMES, ORIENTATIONS, MODES, IOS_VERSIONS, scenarioStem, type IosVersion, type Scenario } from './scenario.ts'
+import { SCROLL_STATES, THEMES, ORIENTATIONS, MODES, IOS_VERSIONS, DEFAULT_IOS, scenarioStem, type IosVersion, type Scenario } from './scenario.ts'
 import { takeShot, type ShotReport } from './shot.ts'
 
 const DEFAULT_SCROLL_PX = 400
@@ -20,7 +20,7 @@ plus a .json report next to each PNG, and prints a JSON manifest to stdout.
 
 Options:
   -d, --device <ids>        Device presets, comma-separated, or "all" (default: ${DEFAULT_DEVICE_ID})
-      --ios <versions>      ${IOS_VERSIONS.join(', ')} or "all"; 18 is a simplified, portrait-only model (default: 26)
+      --ios <versions>      ${IOS_VERSIONS.join(', ')} or "all"; 18 is a simplified, portrait-only model (default: ${DEFAULT_IOS})
   -s, --state <states>      ${SCROLL_STATES.join(', ')} or "all" (default: scrolled with --scroll, else initial)
   -t, --theme <themes>      ${THEMES.join(', ')} or "all" (default: light)
   -o, --orientation <list>  ${ORIENTATIONS.join(', ')} (default: portrait)
@@ -48,7 +48,7 @@ async function main() {
     allowPositionals: true,
     options: {
       device: { type: 'string', short: 'd', default: DEFAULT_DEVICE_ID },
-      ios: { type: 'string', default: '26' },
+      ios: { type: 'string', default: DEFAULT_IOS },
       state: { type: 'string', short: 's' },
       theme: { type: 'string', short: 't', default: 'light' },
       orientation: { type: 'string', short: 'o', default: 'portrait' },
