@@ -1,4 +1,4 @@
-import type { Browser, BrowserContext, Page } from 'playwright'
+import type { Browser, BrowserContext, Page, PageScreenshotOptions } from 'playwright'
 import sharp from 'sharp'
 import { probePage, SIDES, type PageFacts, type Side, type ClientRect } from './page-probe.ts'
 import { resolveEdge, predominantColor, NO_EDGES, type FixedEdges, type PredominantColor } from './edges.ts'
@@ -113,7 +113,7 @@ export async function capturePage(browser: Browser, request: CaptureRequest): Pr
     const factsAtLoad = await probe()
     const pageBackgroundAtLoad = underPageBackground(factsAtLoad, scenario.theme)
     const edgesAtLoad = await resolveEdges(page, factsAtLoad, pageBackgroundAtLoad, NO_EDGES)
-    const sampledPageTopColor = factsAtLoad.sampleInvalid.top.some(reason => reason !== null) ? null : await sampleTop(page, factsAtLoad.viewport)
+    const sampledPageTopColor = factsAtLoad.sampleInvalid.top.some(reason => reason !== null) ? null : await sampleTop(page, factsAtLoad.viewport, canvasBase(factsAtLoad, scenario.theme))
 
     if (toolbar === 'collapsed') await page.setViewportSize(largeViewport)
     const targetScroll = scenario.state === 'scrolled' ? request.scrollY : scenario.state === 'overscroll-bottom' ? Number.MAX_SAFE_INTEGER : 0
@@ -136,7 +136,7 @@ export async function capturePage(browser: Browser, request: CaptureRequest): Pr
       viewportHeight: facts.viewport.height,
       scrollY: facts.scroll.y,
     }
-    const images = await captureImages(page, layout, facts)
+    const images = await captureImages(page, layout, facts, canvasBase(facts, scenario.theme))
     const content = await contentOnScreen(images, layout)
     return {
       facts, edgesAtLoad, edges, underPageBackground: pageBackground, manifest: await fetchManifest(context, facts.manifestHref), layout, images,
@@ -159,12 +159,17 @@ export async function capturePage(browser: Browser, request: CaptureRequest): Pr
  * @returns the opaque under-page color
  */
 export function underPageBackground(facts: PageFacts, theme: Scenario['theme']): Rgba {
-  const base = theme === 'dark' && facts.colorScheme.root.includes('dark') ? BLACK : WHITE
+  const base = canvasBase(facts, theme)
   const html = facts.htmlBackground
   const body = facts.bodyBackground
   if (!isVisible(html) && !(body && isVisible(body))) return base
   const withHtml = isVisible(html) ? blendSourceOver(base, html) : base
   return body && isVisible(body) ? blendSourceOver(withHtml, body) : withHtml
+}
+
+function canvasBase(facts: PageFacts, theme: Scenario['theme']): Rgba {
+  const supportsDark = facts.colorScheme.root.includes('dark') || (facts.colorScheme.meta ?? '').includes('dark')
+  return theme === 'dark' && supportsDark ? BLACK : WHITE
 }
 
 async function resolveEdges(page: Page, facts: PageFacts, pageBackground: Rgba, previous: FixedEdges): Promise<FixedEdges> {
@@ -218,10 +223,10 @@ async function sampleFixedLayers(page: Page, rect: ClientRect): Promise<Predomin
 }
 
 // WebKit allows one outlier among the edge samples; this keeps the stricter rule that every sample agrees.
-async function sampleTop(page: Page, viewport: PageFacts['viewport']): Promise<Rgba | null> {
+async function sampleTop(page: Page, viewport: PageFacts['viewport'], base: Rgba): Promise<Rgba | null> {
   const height = Math.min(TOP_SAMPLE_MIN_HEIGHT, viewport.height)
-  const png = await page.screenshot({ clip: { x: 0, y: 0, width: viewport.width, height }, animations: 'disabled', caret: 'hide' })
-  const { data, info } = await sharp(png).removeAlpha().raw().toBuffer({ resolveWithObject: true })
+  const png = await page.screenshot({ clip: { x: 0, y: 0, width: viewport.width, height }, animations: 'disabled', caret: 'hide', omitBackground: true })
+  const { data, info } = await sharp(png).flatten({ background: { r: base.r, g: base.g, b: base.b } }).raw().toBuffer({ resolveWithObject: true })
   const at = (fraction: number, y: number): Rgba => {
     const i = (y * info.width + Math.min(info.width - 1, Math.round(fraction * info.width))) * info.channels
     return { r: data[i]!, g: data[i + 1]!, b: data[i + 2]!, a: 1 }
@@ -236,8 +241,12 @@ async function sampleTop(page: Page, viewport: PageFacts['viewport']): Promise<R
   return fromLab({ l: mean('l'), a: mean('a'), b: mean('b') })
 }
 
-async function captureImages(page: Page, layout: PageLayout, facts: PageFacts): Promise<PageCapture['images']> {
-  const viewport = await page.screenshot({ animations: 'disabled', caret: 'hide' })
+async function captureImages(page: Page, layout: PageLayout, facts: PageFacts, base: Rgba): Promise<PageCapture['images']> {
+  // Desktop WebKit fills its own canvas color (#1e1e1e in dark mode where iOS uses black), so the canvas is
+  // captured transparent and painted with iOS's base; the under-page color shows only outside the document.
+  const screenshot = async (options: PageScreenshotOptions) =>
+    sharp(await page.screenshot({ ...options, animations: 'disabled', caret: 'hide', omitBackground: true })).flatten({ background: { r: base.r, g: base.g, b: base.b } }).png().toBuffer()
+  const viewport = await screenshot({})
   const { width } = facts.viewport
   const aboveHeight = Math.max(0, layout.viewportTop)
   const belowTop = layout.viewportTop + layout.viewportHeight
@@ -252,7 +261,7 @@ async function captureImages(page: Page, layout: PageLayout, facts: PageFacts): 
     if (aboveHeight > 0 && scrollY > aboveStart) {
       const scrolled = await scrollToY(page, aboveStart)
       const height = scrollY - scrolled
-      const png = await page.screenshot({ clip: { x: 0, y: 0, width, height }, animations: 'disabled', caret: 'hide' })
+      const png = await screenshot({ clip: { x: 0, y: 0, width, height } })
       above = { png, top: layout.viewportTop - height, height }
     }
     let below: Band | null = null
@@ -262,7 +271,7 @@ async function captureImages(page: Page, layout: PageLayout, facts: PageFacts): 
       const scrolled = await scrollToY(page, belowEnd - layout.viewportHeight)
       const offset = belowStart - scrolled
       const height = belowEnd - belowStart
-      const png = await page.screenshot({ clip: { x: 0, y: offset, width, height }, animations: 'disabled', caret: 'hide' })
+      const png = await screenshot({ clip: { x: 0, y: offset, width, height } })
       below = { png, top: belowTop, height }
     }
     await scrollToY(page, scrollY)
