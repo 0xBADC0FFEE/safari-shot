@@ -32,7 +32,11 @@ Run every behaviour change through these steps, in order. Each ends on its compl
    Write the fit's provenance (tool, sample set, RMSE) in a comment beside the constant.
 8. **Record.** Add or update the rule in [docs/safari-rules.md](docs/safari-rules.md) tagged **[src]**
    or **[sim]**; add each unresolved miss to `KNOWN_GAPS` with one sentence of observed fact.
-9. **Verify.** `npm test` (about 25 minutes; run it in the background). Done when it reports
+9. **Update the agent skill.** [skills/safari-shot/SKILL.md](skills/safari-shot/SKILL.md) is how
+   agents learn the CLI. Done when every CLI option, report field, default and limit it mentions
+   matches the code, and every user-visible change (new option, new iOS version, a limit lifted)
+   appears in it.
+10. **Verify.** `npm test` (about 25 minutes; run it in the background). Done when it reports
    `fail 0`; known gaps run as todo, so a fix that makes one pass shows up without failing the suite.
 
 ## Diagnosing a miss
@@ -115,3 +119,12 @@ layout, not on the model, so a model change needs no rebuild; rerun the tests in
   `until ! pgrep -f X` never ends. Wait on a log line or a PID instead.
 - The shell is zsh on macOS: an unmatched glob aborts the command, and BSD `sed` has no `\b`
   (use `perl -pi -e`).
+
+## Pull requests and releases
+
+- `main` is protected: changes land through pull requests with green `Build` and `Test` checks.
+  Commit messages follow Conventional Commits.
+- **Release**: bump `version` in [package.json](package.json) in a pull request; once merged, run
+  `gh release create v<version> --generate-notes`. The [release workflow](.github/workflows/release.yml)
+  checks the tag against `package.json` and publishes to npm through trusted publishing, with
+  provenance; no npm token is stored in the repository.

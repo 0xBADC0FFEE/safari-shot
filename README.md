@@ -1,14 +1,19 @@
 # safari-shot
 
+[![CI](https://github.com/0xBADC0FFEE/safari-shot/actions/workflows/ci.yml/badge.svg)](https://github.com/0xBADC0FFEE/safari-shot/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/safari-shot)](https://www.npmjs.com/package/safari-shot)
+
 Screenshots of web pages as iOS 27 Safari shows them on iPhone — including what Safari paints
 under the status bar and the Liquid Glass toolbar — without a simulator. `--ios 26` selects the
-iOS 26 glass; a simplified iOS 18 model (`--ios 18`, portrait) covers pre–Liquid Glass Safari. Runs anywhere Playwright
-runs (Linux, Docker, macOS).
+iOS 26 glass; a simplified iOS 18 model (`--ios 18`, portrait) covers pre–Liquid Glass Safari.
+Runs anywhere Playwright runs (Linux, Docker, macOS) on Node.js 22.18 or later.
 
 ```bash
-npx playwright install webkit
-safari-shot https://example.com
+npx -y safari-shot https://example.com
 ```
+
+The first run downloads Playwright's WebKit build (about 100 MB). On Linux, install its system
+libraries once with `npx playwright install --with-deps webkit`.
 
 ```text
 safari-shots/
@@ -18,6 +23,18 @@ safari-shots/
       iphone-17-pro.portrait.light.initial.json # why each panel looks the way it does
   manifest.json                                  # every shot of the run; also printed to stdout
 ```
+
+## Agent skill
+
+The `safari-shot` skill teaches coding agents (Claude Code, Codex, Cursor and
+[others](https://github.com/vercel-labs/skills)) to run the CLI, read its reports and fix a page's
+panels:
+
+```bash
+npx skills add 0xBADC0FFEE/safari-shot --skill safari-shot
+```
+
+Add `-g` to install it for every project.
 
 ## Usage
 
