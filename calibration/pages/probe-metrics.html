@@ -1,0 +1,55 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>probe</title>
+<style>
+  html, body { margin: 0; background: #ffffff; font: 14px -apple-system, sans-serif; }
+  #probe { position: fixed; top: 0; left: 0; width: 1px; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); visibility: hidden; }
+  #lvh { position: absolute; top: 0; height: 100lvh; width: 1px; }
+  #svh { position: absolute; top: 0; height: 100svh; width: 1px; }
+  #dvh { position: absolute; top: 0; height: 100dvh; width: 1px; }
+  .row { height: 100px; border-bottom: 1px solid #ccc; padding: 8px; }
+  pre { white-space: pre-wrap; padding: 0 12px; }
+</style>
+</head>
+<body>
+<div id="probe"></div><div id="lvh"></div><div id="svh"></div><div id="dvh"></div>
+<pre id="out"></pre>
+<script>
+  const rows = Array.from({ length: 40 }, (_, i) => `<div class="row">row ${i}</div>`).join('')
+  document.body.insertAdjacentHTML('beforeend', rows)
+  function measure(label) {
+    const p = getComputedStyle(document.getElementById('probe'))
+    const h = id => document.getElementById(id).getBoundingClientRect().height
+    return {
+      label,
+      ua: navigator.userAgent,
+      dpr: devicePixelRatio,
+      screen: [screen.width, screen.height],
+      inner: [innerWidth, innerHeight],
+      client: [document.documentElement.clientWidth, document.documentElement.clientHeight],
+      visualViewport: visualViewport && [visualViewport.width, visualViewport.height, visualViewport.offsetTop, visualViewport.pageTop],
+      lvh: h('lvh'), svh: h('svh'), dvh: h('dvh'),
+      safeArea: [p.paddingTop, p.paddingRight, p.paddingBottom, p.paddingLeft],
+      scrollY,
+      standalone: navigator.standalone,
+    }
+  }
+  const results = []
+  function report() {
+    results.push(measure('t' + results.length))
+    document.getElementById('out').textContent = JSON.stringify(results.at(-1), null, 1)
+    fetch('/report/' + (new URLSearchParams(location.search).get('name') || 'probe-metrics'), { method: 'POST', body: JSON.stringify(results) })
+  }
+  addEventListener('load', () => {
+    setTimeout(report, 500)
+    const scrollTarget = Number(new URLSearchParams(location.search).get('scroll'))
+    if (scrollTarget) setTimeout(() => scrollTo(0, scrollTarget), 1500)
+  })
+  addEventListener('scrollend', report)
+  addEventListener('resize', report)
+</script>
+</body>
+</html>
