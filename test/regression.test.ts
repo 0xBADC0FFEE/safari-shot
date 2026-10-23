@@ -2,23 +2,17 @@ import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { webkit, type Browser } from 'playwright'
-import type { Server } from 'node:http'
-import { startCalibrationServer } from '../calibration/server.ts'
-import { checkExpectations, EXPECTATIONS_DIR, type Expectation } from '../calibration/compare.ts'
+import { checkExpectations, startRenderer, EXPECTATIONS_DIR, type Expectation, type Renderer } from '../calibration/compare.ts'
 
 // Panel colors recorded from iOS Simulator Safari (calibration/compare.ts writes them).
 const expectations = JSON.parse(await readFile(join(EXPECTATIONS_DIR, 'ios26.json'), 'utf8')) as Expectation[]
 
-let browser: Browser
-let server: Server
+let renderer: Renderer
 before(async () => {
-  server = await startCalibrationServer()
-  browser = await webkit.launch()
+  renderer = await startRenderer()
 })
 after(async () => {
-  await browser.close()
-  server.close()
+  await renderer.close()
 })
 
 // Cases the model does not reproduce yet; they run as todo so a fix shows up without failing the suite.
@@ -30,7 +24,7 @@ const KNOWN_GAPS: Readonly<Record<string, string>> = {
 for (const expectation of expectations) {
   const id = `${expectation.name} ${expectation.stem}`
   test(`${id} matches Safari`, { todo: KNOWN_GAPS[id] }, async () => {
-    const [result] = await checkExpectations(browser, [expectation])
+    const [result] = await checkExpectations(renderer, [expectation])
     const failures = [
       ...result!.regions.filter(r => !r.pass).map(r => `${r.region}: Safari ${r.reference}, ours ${r.ours} (ΔE ${r.deltaE})`),
       ...(result!.statusBar.pass ? [] : [`status bar: Safari ${result!.statusBar.reference}, ours ${result!.statusBar.ours}`]),

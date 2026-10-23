@@ -3,7 +3,8 @@ import { join, basename } from 'node:path'
 import { parseArgs } from 'node:util'
 import sharp from 'sharp'
 import { webkit, type Browser } from 'playwright'
-import { startCalibrationServer, referenceReportId, CALIBRATION_PORT, REPORTS_DIR } from './server.ts'
+import type { AddressInfo } from 'node:net'
+import { startCalibrationServer, referenceReportId, REPORTS_DIR } from './server.ts'
 import { contactSheet } from './contact-sheet.ts'
 import { takeShot, type ShotReport } from '../src/shot.ts'
 import { findDevice } from '../src/devices.ts'
@@ -66,34 +67,56 @@ if (import.meta.main) {
       sheets: { type: 'boolean', default: false },
     },
   })
-  const server = await startCalibrationServer()
-  const browser = await webkit.launch()
+  const renderer = await startRenderer()
   try {
     const filter = { cases: values.cases?.split(','), states: values.states?.split(',') as ScrollState[] | undefined }
-    const expectations = await buildExpectations(browser, values.ios, filter)
+    const expectations = await buildExpectations(renderer, values.ios, filter)
     if (!filter.cases && !filter.states) {
       await mkdir(EXPECTATIONS_DIR, { recursive: true })
       await writeFile(join(EXPECTATIONS_DIR, `ios${values.ios}.json`), JSON.stringify(expectations, null, 1))
     }
-    const results = await checkExpectations(browser, expectations, { sheets: values.sheets ? values.ios : undefined })
+    const results = await checkExpectations(renderer, expectations, { sheets: values.sheets ? values.ios : undefined })
     printTable(results)
     await mkdir(OUTPUT_DIR, { recursive: true })
     await writeFile(join(OUTPUT_DIR, 'summary.json'), JSON.stringify(results, null, 2))
     if (results.some(r => !r.pass)) process.exitCode = 1
   } finally {
-    await browser.close()
-    server.close()
+    await renderer.close()
+  }
+}
+
+/** A browser plus a corpus server on a free port, so comparisons can run while a capture holds the default port. */
+export interface Renderer {
+  readonly browser: Browser
+  readonly origin: string
+  close(): Promise<void>
+}
+
+/**
+ * Launches WebKit and a calibration server on an ephemeral port.
+ * @returns the renderer; call `close` when done
+ */
+export async function startRenderer(): Promise<Renderer> {
+  const server = await startCalibrationServer(0)
+  const browser = await webkit.launch()
+  return {
+    browser,
+    origin: `http://localhost:${(server.address() as AddressInfo).port}`,
+    async close() {
+      await browser.close()
+      server.close()
+    },
   }
 }
 
 /**
  * Reads Simulator references and records the panel colors they show.
- * @param browser browser used to render each scenario once, to learn its toolbar state and fills
+ * @param renderer browser and corpus server used to render each scenario once, to learn its fills
  * @param ios iOS major version of the references
  * @param filter optional case and state restriction
  * @returns one expectation per reference image
  */
-export async function buildExpectations(browser: Browser, ios: string, filter: { cases?: string[], states?: ScrollState[] } = {}): Promise<Expectation[]> {
+export async function buildExpectations(renderer: Renderer, ios: string, filter: { cases?: string[], states?: ScrollState[] } = {}): Promise<Expectation[]> {
   const root = join(REFERENCES_DIR, `ios${ios}`)
   const expectations: Expectation[] = []
   for (const name of (await readdir(root)).sort()) {
@@ -102,7 +125,7 @@ export async function buildExpectations(browser: Browser, ios: string, filter: {
       const stem = basename(file, '.png')
       if (filter.states && !filter.states.includes(parseStem(stem).scenario.state)) continue
       const replay = await readReplay(ios, name, stem)
-      const { report } = await render(browser, name, stem, replay)
+      const { report } = await render(renderer, name, stem, replay)
       const reference = await rawImage(await readFile(join(root, name, file)))
       const scale = report.device.scale
       expectations.push({
@@ -117,15 +140,15 @@ export async function buildExpectations(browser: Browser, ios: string, filter: {
 
 /**
  * Renders every expectation with safari-shot and compares the panel regions.
- * @param browser Playwright browser
+ * @param renderer browser and corpus server
  * @param expectations recorded reference colors
  * @param options `sheets`: iOS version whose references to put next to ours in review PNGs
  * @returns one result per expectation
  */
-export async function checkExpectations(browser: Browser, expectations: readonly Expectation[], options: { sheets?: string } = {}): Promise<CaseResult[]> {
+export async function checkExpectations(renderer: Renderer, expectations: readonly Expectation[], options: { sheets?: string } = {}): Promise<CaseResult[]> {
   const results: CaseResult[] = []
   for (const expectation of expectations) {
-    const { png } = await render(browser, expectation.name, expectation.stem, expectation)
+    const { png } = await render(renderer, expectation.name, expectation.stem, expectation)
     const scale = findDevice(parseStem(expectation.stem).deviceId).scale
     const ours = await rawImage(png)
     const regions = expectation.regions.map(region => {
@@ -153,10 +176,10 @@ function parseStem(stem: string) {
   return { deviceId, scenario: { state, theme, orientation, mode: 'browser' } satisfies Scenario }
 }
 
-async function render(browser: Browser, name: string, stem: string, replay: { scrollY: number, toolbar: 'expanded' | 'collapsed' }): Promise<{ png: Buffer, report: ShotReport }> {
+async function render({ browser, origin }: Renderer, name: string, stem: string, replay: { scrollY: number, toolbar: 'expanded' | 'collapsed' }): Promise<{ png: Buffer, report: ShotReport }> {
   const { deviceId, scenario } = parseStem(stem)
   return takeShot(browser, {
-    url: `http://localhost:${CALIBRATION_PORT}/case/${name}`,
+    url: `${origin}/case/${name}`,
     device: findDevice(deviceId), scenario, settleMs: SETTLE_MS, overscroll: DEFAULT_OVERSCROLL_PT,
     scrollY: replay.scrollY, toolbar: replay.toolbar,
   })
