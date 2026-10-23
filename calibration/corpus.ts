@@ -24,7 +24,7 @@ function page({ head = '', style = '', body = '', viewport = 'width=device-width
 ${head}
 <style>
   body { margin: 0; font: 16px -apple-system, Helvetica, sans-serif; }
-  .row { margin: 0; padding: 20px 16px; border-bottom: 1px solid rgba(128,128,128,.4); }
+  .row { margin: 0; padding: 20px 16px; height: 20px; line-height: 20px; white-space: nowrap; overflow: hidden; border-bottom: 1px solid rgba(128,128,128,.4); }
   ${style}
 </style>
 </head>

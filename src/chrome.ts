@@ -33,21 +33,15 @@ export interface Chrome26 {
     readonly rim: string
     readonly shadow: string
   }
-  /** Scroll edge effect: content fades into the pocket color under the bars. */
-  readonly topPocket: Pocket
-  readonly bottomPocket: Pocket
+  /** Top scroll edge: the pocket color over content, alpha by distance from the screen top. */
+  readonly topPocket: { readonly alphaStops: readonly AlphaStop[] }
+  /** Bottom scroll edge under the expanded toolbar: blurred content mixed in by distance from the bottom. */
+  readonly bottomPocket: { readonly blur: number, readonly alphaStops: readonly AlphaStop[] }
   readonly refreshSpinner: { readonly offsetTop: number }
 }
 
-export interface Pocket {
-  /** How far the effect reaches past the obscured inset, into the page. */
-  readonly overhang: number
-  /** [offset 0–1 from the screen edge, pocket color alpha]. */
-  readonly alphaStops: readonly (readonly [number, number])[]
-  readonly blur: number
-  /** Fraction of the pocket height that is fully blurred before the blur fades out. */
-  readonly blurSolidUntil: number
-}
+/** [distance from the screen edge in points, opacity]. */
+export type AlphaStop = readonly [number, number]
 
 export const CHROME_26: Chrome26 = {
   fontFamily: `-apple-system, "SF Pro Text", "SF Pro", system-ui, "Inter", "Helvetica Neue", Arial, sans-serif`,
@@ -67,7 +61,9 @@ export const CHROME_26: Chrome26 = {
     rim: 'inset 0.6px 0.6px 0.6px rgba(255, 255, 255, 0.7), inset -0.4px -0.4px 0.6px rgba(255, 255, 255, 0.35)',
     shadow: '0 4px 16px rgba(0, 0, 0, 0.06)',
   },
-  topPocket: { overhang: 12, alphaStops: [[0, 0.7], [0.6, 0.45], [1, 0]], blur: 1.5, blurSolidUntil: 0.6 },
-  bottomPocket: { overhang: 16, alphaStops: [[0, 0.75], [0.6, 0.5], [1, 0]], blur: 1.5, blurSolidUntil: 0.6 },
+  // Measured on a red page edge under a green body (html-body-colors, scrolled).
+  topPocket: { alphaStops: [[0, 0.81], [10, 0.75], [20, 0.67], [30, 0.55], [40, 0.41], [50, 0.27], [60, 0.16], [70, 0.08], [80, 0.03], [100, 0]] },
+  // Measured from black text rows fading under the expanded toolbar (plain, top-hero).
+  bottomPocket: { blur: 40, alphaStops: [[0, 0.8], [28, 0.8], [39, 0.76], [48, 0.69], [52, 0.65], [63, 0.54], [72, 0.42], [83, 0.29], [114, 0.03], [125, 0]] },
   refreshSpinner: { offsetTop: 30 },
 }

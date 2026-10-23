@@ -75,14 +75,18 @@ export function composeHtml({ capture, plan, hostLabel }: ComposeInput): string 
     `<img src="${path}" style="position:absolute;left:${contentLeft}px;top:${top}px;width:${viewportWidth}px;height:${height}px">`
   const band = (path: string, b: Band | null) => b ? img(path, b.top, b.height) : ''
 
-  const under = [
+  const topPocketColor = plan.fills.top?.kind === 'extension' ? plan.fills.top.color : plan.underPageBackground
+  const base = [
     `<div style="position:absolute;inset:0;background:${toCss(plan.underPageBackground)}"></div>`,
     band('/above.png', images.above),
     img('/viewport.png', layout.viewportTop, layout.viewportHeight),
     band('/below.png', images.below),
-    insetLayer('top', plan.fills.top, 0, obscured.top + plan.topExtensionGrowth, screen.width, chrome),
-    insetLayer('bottom', plan.fills.bottom, screen.height - obscured.bottom, obscured.bottom, screen.width, chrome),
+    extension(plan.fills.top, 0, obscured.top + plan.topExtensionGrowth, screen.width),
+    extension(plan.fills.bottom, screen.height - obscured.bottom, obscured.bottom, screen.width),
+    obscured.top > 0 ? topPocket(topPocketColor, screen.width, chrome) : '',
   ].join('')
+  const blurBottomEdge = plan.toolbar === 'expanded' && plan.fills.bottom?.kind === 'content'
+  const under = base + (blurBottomEdge ? bottomPocket(base, screen, chrome) : '')
   const shapes = plan.toolbar === 'expanded' ? expandedToolbar(screen, hostLabel, chrome) : collapsedToolbar(screen, hostLabel, chrome)
 
   return `<!doctype html><html><head><meta charset="utf-8"><style>
@@ -115,17 +119,22 @@ function glass(shape: GlassShape, under: string) {
   </div>`
 }
 
-function insetLayer(side: 'top' | 'bottom', fill: PanelPlan['fills']['top'], top: number, height: number, width: number, chrome: Chrome26) {
-  if (!fill || height <= 0) return ''
-  if (fill.kind === 'extension') return `<div style="position:absolute;left:0;top:${top}px;width:${width}px;height:${height}px;background:${toCss(fill.color)}"></div>`
-  const pocket = side === 'top' ? chrome.topPocket : chrome.bottomPocket
-  const pocketHeight = height + pocket.overhang
-  const pocketTop = side === 'top' ? top : top - pocket.overhang
-  const stops = pocket.alphaStops.map(([offset, alpha]) => `${rgba(fill.pocketColor, alpha)} ${(offset * 100).toFixed(1)}%`).join(', ')
-  const direction = side === 'top' ? 'to bottom' : 'to top'
-  const blurMask = `linear-gradient(${direction}, #000 ${(pocket.blurSolidUntil * 100).toFixed(1)}%, transparent)`
-  return `<div style="position:absolute;left:0;top:${pocketTop}px;width:${width}px;height:${pocketHeight}px;backdrop-filter:blur(${pocket.blur}px);-webkit-backdrop-filter:blur(${pocket.blur}px);-webkit-mask-image:${blurMask};mask-image:${blurMask}"></div>
-    <div style="position:absolute;left:0;top:${pocketTop}px;width:${width}px;height:${pocketHeight}px;background:linear-gradient(${direction}, ${stops})"></div>`
+function extension(fill: PanelPlan['fills']['top'], top: number, height: number, width: number) {
+  if (fill?.kind !== 'extension' || height <= 0) return ''
+  return `<div style="position:absolute;left:0;top:${top}px;width:${width}px;height:${height}px;background:${toCss(fill.color)}"></div>`
+}
+
+function topPocket(color: Rgba, width: number, chrome: Chrome26) {
+  const stops = chrome.topPocket.alphaStops
+  const height = stops.at(-1)![0]
+  const gradient = stops.map(([distance, alpha]) => `${rgba(color, alpha)} ${distance}px`).join(', ')
+  return `<div style="position:absolute;left:0;top:0;width:${width}px;height:${height}px;background:linear-gradient(to bottom, ${gradient})"></div>`
+}
+
+function bottomPocket(base: string, screen: { width: number, height: number }, chrome: Chrome26) {
+  const { blur, alphaStops } = chrome.bottomPocket
+  const mask = `linear-gradient(to top, ${alphaStops.map(([distance, alpha]) => `rgba(0,0,0,${alpha}) ${distance}px`).join(', ')})`
+  return `<div class="layer" style="-webkit-mask-image:${mask};mask-image:${mask}"><div class="layer" style="filter:blur(${blur}px)">${base}</div></div>`
 }
 
 function rgba(color: Rgba, alpha: number) {

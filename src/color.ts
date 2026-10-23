@@ -74,8 +74,8 @@ export function parseSimpleColor(text: string): Rgba | undefined {
   const hex = /^#([0-9a-f]{3,8})$/.exec(value)?.[1]
   if (hex && [3, 4, 6, 8].includes(hex.length)) {
     const digits = hex.length <= 4 ? [...hex].map(d => d + d) : hex.match(/../g)!
-    const [r, g, b, a = 'ff'] = digits.map(d => parseInt(d, 16)).map(String)
-    return { r: Number(r), g: Number(g), b: Number(b), a: Number(a) / 255 }
+    const [r = 0, g = 0, b = 0, a = 255] = digits.map(d => parseInt(d, 16))
+    return { r, g, b, a: a / 255 }
   }
   const fn = /^rgba?\(([^)]+)\)$/.exec(value)?.[1]
   if (!fn) return undefined
