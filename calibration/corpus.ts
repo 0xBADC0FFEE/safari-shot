@@ -81,6 +81,10 @@ export const corpus: readonly CorpusCase[] = [
     name: `swatch-${color.slice(1)}`,
     html: page({ style: `body { background: ${color}; } .row { visibility: hidden; }` }),
   })),
+  {
+    name: 'geometry',
+    html: page({ style: 'body { background: #1e88e5; color: #fff; } .marker { position: fixed; top: 0; left: 0; width: 40%; height: 20px; background: #ff0000; }', body: '<div class="marker"></div>' }),
+  },
   { name: 'standalone-translucent', html: page({ head: '<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="Translucent">', style: 'body { background: #4caf50; padding-top: env(safe-area-inset-top); }' }) },
   { name: 'standalone-default', html: page({ head: '<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Default">', style: 'body { background: #4caf50; }' }) },
 ]

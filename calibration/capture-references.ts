@@ -1,4 +1,4 @@
-import { mkdir } from 'node:fs/promises'
+import { mkdir, access } from 'node:fs/promises'
 import { join } from 'node:path'
 import { parseArgs, promisify } from 'node:util'
 import { execFile } from 'node:child_process'
@@ -28,6 +28,7 @@ const { values } = parseArgs({
     states: { type: 'string', default: SCROLL_STATES.join(',') },
     themes: { type: 'string', default: 'light' },
     orientations: { type: 'string', default: 'portrait' },
+    overwrite: { type: 'boolean', default: false },
   },
 })
 
@@ -38,7 +39,8 @@ const themes = values.themes.split(',').filter(t => (THEMES as readonly string[]
 const orientations = values.orientations.split(',').filter(o => (ORIENTATIONS as readonly string[]).includes(o)) as Scenario['orientation'][]
 
 const server = await startCalibrationServer()
-const session = await openSimulatorSession(values.udid)
+let session = await openSimulatorSession(values.udid)
+const failures: string[] = []
 try {
   for (const theme of themes) {
     await run('xcrun', ['simctl', 'ui', values.udid, 'appearance', theme])
@@ -50,8 +52,18 @@ try {
           const dir = join(REFERENCES_DIR, `ios${values.ios}`, corpusCase.name)
           await mkdir(dir, { recursive: true })
           const stem = scenarioStem(values.device, scenario)
-          await captureState(session, corpusCase.name, stem, state, join(dir, `${stem}.png`))
-          console.log(`${corpusCase.name} ${stem}`)
+          const output = join(dir, `${stem}.png`)
+          if (!values.overwrite && await access(output).then(() => true, () => false)) continue
+          try {
+            await captureState(session, corpusCase.name, stem, state, output)
+            console.log(`${corpusCase.name} ${stem}`)
+          } catch (error) {
+            failures.push(`${corpusCase.name} ${stem}: ${error}`)
+            console.error(`skipped ${corpusCase.name} ${stem}: ${error}`)
+            await session.close()
+            session = await openSimulatorSession(values.udid)
+            await session.perform([{ action: 'orient', label: orientation }])
+          }
         }
       }
     }
@@ -60,6 +72,10 @@ try {
   await session.perform([{ action: 'orient', label: 'portrait' }]).catch(() => {})
   await session.close()
   server?.close()
+  if (failures.length) {
+    console.error(`${failures.length} shots skipped:\n${failures.join('\n')}`)
+    process.exitCode = 1
+  }
 }
 
 async function captureState(session: SimulatorSession, caseName: string, stem: string, state: ScrollState, output: string) {

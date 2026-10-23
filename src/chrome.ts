@@ -26,8 +26,10 @@ export interface Chrome26 {
     readonly fontSize: number
   }
   readonly glass: {
-    readonly backdropFilter: string
-    readonly tint: string
+    readonly blur: number
+    /** feColorMatrix (4×5, row-major, sRGB 0–1) mapping the blurred backdrop to the glass fill. */
+    readonly colorMatrix: readonly number[]
+    readonly ink: string
     readonly rim: string
     readonly shadow: string
   }
@@ -53,8 +55,15 @@ export const CHROME_26: Chrome26 = {
   toolbarExpanded: { height: 48, sideMargin: 34, gap: 7, bottomMargin: 34, fontSize: 17, pageMenuIconLeft: 16, reloadIconRight: 14, disabledIconColor: 'rgba(60, 60, 67, 0.3)' },
   toolbarCollapsed: { height: 32, bottomMargin: 14, paddingX: 18, fontSize: 12.6 },
   glass: {
-    backdropFilter: 'blur(2px) saturate(1.8) brightness(1.15)',
-    tint: 'rgba(255, 255, 255, 0.3)',
+    blur: 2,
+    // calibration/fit-glass.ts: saturate(2.25) · 0.48 + 0.538
+    colorMatrix: [
+      0.9524, -0.4291, -0.0433, 0, 0.538,
+      -0.1276, 0.6509, -0.0433, 0, 0.538,
+      -0.1276, -0.4291, 1.0367, 0, 0.538,
+      0, 0, 0, 1, 0,
+    ],
+    ink: '#000000',
     rim: 'inset 0.6px 0.6px 0.6px rgba(255, 255, 255, 0.7), inset -0.4px -0.4px 0.6px rgba(255, 255, 255, 0.35)',
     shadow: '0 4px 16px rgba(0, 0, 0, 0.06)',
   },

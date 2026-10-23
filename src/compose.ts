@@ -12,6 +12,18 @@ export interface ComposeInput {
   readonly hostLabel: string
 }
 
+// Virtual origin the compositor page loads its images from, so clones reuse one decoded image.
+const ASSET_ORIGIN = 'https://safari-shot.invalid'
+
+interface GlassShape {
+  readonly left: number
+  readonly top: number
+  readonly width: number
+  readonly height: number
+  readonly radius: number
+  readonly inner: string
+}
+
 /**
  * Renders the final screenshot: page content placed on screen plus Safari's panels drawn over it.
  * @param browser browser used as the compositor
@@ -22,19 +34,36 @@ export async function composeScreenshot(browser: Browser, input: ComposeInput): 
   const { screen } = input.capture.layout
   const context = await browser.newContext({ viewport: screen, deviceScaleFactor: input.device.scale })
   try {
+    const assets = new Map<string, { body: Buffer | string, contentType: string }>([
+      ['/index.html', { body: composeHtml(input), contentType: 'text/html; charset=utf-8' }],
+      ...imageAssets(input.capture).map(([path, png]) => [path, { body: png, contentType: 'image/png' }] as const),
+    ])
+    await context.route(`${ASSET_ORIGIN}/**`, route => {
+      const asset = assets.get(new URL(route.request().url()).pathname)
+      return asset ? route.fulfill({ status: 200, body: asset.body, contentType: asset.contentType }) : route.fulfill({ status: 404 })
+    })
     const page = await context.newPage()
-    await page.setContent(composeHtml(input), { waitUntil: 'load' })
-    await page.evaluate(() => document.fonts.ready.then(() => undefined))
+    await page.goto(`${ASSET_ORIGIN}/index.html`, { waitUntil: 'load' })
+    // WebKit fires load before large images are decoded, and the screenshot would miss them.
+    await page.evaluate(() => Promise.all([document.fonts.ready, ...[...document.images].map(i => i.decode())]).then(() => undefined))
     return await page.screenshot({ animations: 'disabled' })
   } finally {
     await context.close()
   }
 }
 
+function imageAssets({ images }: PageCapture): [string, Buffer][] {
+  return [
+    ['/viewport.png', images.viewport] as [string, Buffer],
+    ...(images.above ? [['/above.png', images.above.png] as [string, Buffer]] : []),
+    ...(images.below ? [['/below.png', images.below.png] as [string, Buffer]] : []),
+  ]
+}
+
 /**
- * Builds the compositor document.
+ * Builds the compositor document. Images load from {@link ASSET_ORIGIN}.
  * @param input capture, panel plan and device
- * @returns self-contained HTML
+ * @returns HTML for the compositor page
  */
 export function composeHtml({ capture, plan, hostLabel }: ComposeInput): string {
   const { layout, images } = capture
@@ -42,27 +71,48 @@ export function composeHtml({ capture, plan, hostLabel }: ComposeInput): string 
   const chrome = CHROME_26
   const contentLeft = layout.geometry.leftInset
   const viewportWidth = screen.width - layout.geometry.leftInset - layout.geometry.rightInset
-  const img = (png: Buffer, top: number, height: number) =>
-    `<img src="data:image/png;base64,${png.toString('base64')}" style="position:absolute;left:${contentLeft}px;top:${top}px;width:${viewportWidth}px;height:${height}px">`
-  const band = (b: Band | null) => b ? img(b.png, b.top, b.height) : ''
+  const img = (path: string, top: number, height: number) =>
+    `<img src="${path}" style="position:absolute;left:${contentLeft}px;top:${top}px;width:${viewportWidth}px;height:${height}px">`
+  const band = (path: string, b: Band | null) => b ? img(path, b.top, b.height) : ''
 
-  const topExtensionHeight = obscured.top + plan.topExtensionGrowth
-  const layers = [
-    `<div id="content" style="position:absolute;inset:0;overflow:hidden">${band(images.above)}${img(images.viewport, layout.viewportTop, layout.viewportHeight)}${band(images.below)}</div>`,
-    insetLayer('top', plan.fills.top, 0, topExtensionHeight, screen.width, chrome),
+  const under = [
+    `<div style="position:absolute;inset:0;background:${toCss(plan.underPageBackground)}"></div>`,
+    band('/above.png', images.above),
+    img('/viewport.png', layout.viewportTop, layout.viewportHeight),
+    band('/below.png', images.below),
+    insetLayer('top', plan.fills.top, 0, obscured.top + plan.topExtensionGrowth, screen.width, chrome),
     insetLayer('bottom', plan.fills.bottom, screen.height - obscured.bottom, obscured.bottom, screen.width, chrome),
-    plan.refreshControl ? spinner(screen.width / 2, obscured.top + chrome.refreshSpinner.offsetTop, plan.statusBar) : '',
-    statusBar(screen.width, plan.statusBar, chrome),
-    plan.toolbar === 'expanded' ? expandedToolbar(screen, hostLabel, chrome) : collapsedToolbar(screen, hostLabel, chrome),
-  ]
+  ].join('')
+  const shapes = plan.toolbar === 'expanded' ? expandedToolbar(screen, hostLabel, chrome) : collapsedToolbar(screen, hostLabel, chrome)
+
   return `<!doctype html><html><head><meta charset="utf-8"><style>
     html, body { margin: 0; width: ${screen.width}px; height: ${screen.height}px; overflow: hidden; }
-    body { position: relative; background: ${toCss(plan.underPageBackground)}; font-family: ${chrome.fontFamily}; -webkit-font-smoothing: antialiased; }
-    .glass { position: absolute; box-sizing: border-box; display: flex; align-items: center; justify-content: center;
-      backdrop-filter: ${chrome.glass.backdropFilter}; -webkit-backdrop-filter: ${chrome.glass.backdropFilter};
-      background: ${chrome.glass.tint}; box-shadow: ${chrome.glass.shadow}; }
-    .glass::after { content: ''; position: absolute; inset: 0; border-radius: inherit; box-shadow: ${chrome.glass.rim}; pointer-events: none; }
-  </style></head><body>${layers.join('\n')}</body></html>`
+    body { position: relative; font-family: ${chrome.fontFamily}; -webkit-font-smoothing: antialiased; }
+    .layer { position: absolute; left: 0; top: 0; width: ${screen.width}px; height: ${screen.height}px; overflow: hidden; }
+    .glass { position: absolute; overflow: hidden; box-shadow: ${chrome.glass.shadow}; }
+    .glass > .refraction { filter: url(#glass); }
+    .glass > .inner { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+    .glass::after { content: ''; position: absolute; inset: 0; border-radius: inherit; box-shadow: ${chrome.glass.rim}; }
+  </style></head><body>
+    ${glassFilter(chrome)}
+    <div class="layer">${under}</div>
+    ${plan.refreshControl ? spinner(screen.width / 2, obscured.top + chrome.refreshSpinner.offsetTop, plan.statusBar) : ''}
+    ${statusBar(screen.width, plan.statusBar, chrome)}
+    ${shapes.map(shape => glass(shape, under)).join('\n')}
+  </body></html>`
+}
+
+function glassFilter(chrome: Chrome26) {
+  const matrix = chrome.glass.colorMatrix.map(n => n.toFixed(4)).join(' ')
+  return `<svg width="0" height="0" style="position:absolute"><filter id="glass" x="-10%" y="-10%" width="120%" height="120%" color-interpolation-filters="sRGB">
+    <feGaussianBlur stdDeviation="${chrome.glass.blur}"/><feColorMatrix type="matrix" values="${matrix}"/></filter></svg>`
+}
+
+function glass(shape: GlassShape, under: string) {
+  return `<div class="glass" style="left:${shape.left}px;top:${shape.top}px;width:${shape.width}px;height:${shape.height}px;border-radius:${shape.radius}px">
+    <div class="layer refraction" style="left:${-shape.left}px;top:${-shape.top}px">${under}</div>
+    <div class="inner">${shape.inner}</div>
+  </div>`
 }
 
 function insetLayer(side: 'top' | 'bottom', fill: PanelPlan['fills']['top'], top: number, height: number, width: number, chrome: Chrome26) {
@@ -73,7 +123,9 @@ function insetLayer(side: 'top' | 'bottom', fill: PanelPlan['fills']['top'], top
   const pocketTop = side === 'top' ? top : top - pocket.overhang
   const stops = pocket.alphaStops.map(([offset, alpha]) => `${rgba(fill.pocketColor, alpha)} ${(offset * 100).toFixed(1)}%`).join(', ')
   const direction = side === 'top' ? 'to bottom' : 'to top'
-  return `<div style="position:absolute;left:0;top:${pocketTop}px;width:${width}px;height:${pocketHeight}px;background:linear-gradient(${direction}, ${stops});backdrop-filter:blur(${pocket.blur}px);-webkit-backdrop-filter:blur(${pocket.blur}px);-webkit-mask-image:linear-gradient(${direction}, #000 ${(pocket.blurSolidUntil * 100).toFixed(1)}%, transparent)"></div>`
+  const blurMask = `linear-gradient(${direction}, #000 ${(pocket.blurSolidUntil * 100).toFixed(1)}%, transparent)`
+  return `<div style="position:absolute;left:0;top:${pocketTop}px;width:${width}px;height:${pocketHeight}px;backdrop-filter:blur(${pocket.blur}px);-webkit-backdrop-filter:blur(${pocket.blur}px);-webkit-mask-image:${blurMask};mask-image:${blurMask}"></div>
+    <div style="position:absolute;left:0;top:${pocketTop}px;width:${width}px;height:${pocketHeight}px;background:linear-gradient(${direction}, ${stops})"></div>`
 }
 
 function rgba(color: Rgba, alpha: number) {
@@ -101,38 +153,41 @@ function statusBar(width: number, style: PanelPlan['statusBar'], chrome: Chrome2
   </div>`
 }
 
-function expandedToolbar(screen: { width: number, height: number }, hostLabel: string, chrome: Chrome26) {
+function expandedToolbar(screen: { width: number, height: number }, hostLabel: string, chrome: Chrome26): GlassShape[] {
   const t = chrome.toolbarExpanded
-  const centerY = screen.height - t.bottomMargin - t.height / 2
-  const top = centerY - t.height / 2
+  const top = screen.height - t.bottomMargin - t.height
   const pillLeft = t.sideMargin + t.height + t.gap
   const pillWidth = screen.width - 2 * pillLeft
-  const iconColor = '#000000'
-  return `<div>
-    <div class="glass" style="left:${t.sideMargin}px;top:${top}px;width:${t.height}px;height:${t.height}px;border-radius:50%">
-      <svg width="12" height="20" viewBox="0 0 12 20"><path d="M10 2 2 10l8 8" fill="none" stroke="${t.disabledIconColor}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    </div>
-    <div class="glass" style="left:${pillLeft}px;top:${top}px;width:${pillWidth}px;height:${t.height}px;border-radius:${t.height / 2}px">
-      <svg style="position:absolute;left:${t.pageMenuIconLeft}px;top:${t.height / 2 - 9}px" width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="${iconColor}" stroke-width="1.6" stroke-linecap="round">
-        <rect x="2" y="1.5" width="14" height="8.5" rx="2"/><path d="M2 13.2h14M2 16.4h9"/>
-      </svg>
-      <span style="font-size:${t.fontSize}px;font-weight:500;color:${iconColor};letter-spacing:-0.3px;white-space:nowrap;max-width:${pillWidth - 90}px;overflow:hidden;text-overflow:ellipsis">${escapeHtml(hostLabel)}</span>
-      <svg style="position:absolute;right:${t.reloadIconRight}px;top:${t.height / 2 - 10}px" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="${iconColor}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M15.6 7.2A6.6 6.6 0 1 0 16.6 11"/><path d="M16.2 2.6v4.8h-4.8"/>
-      </svg>
-    </div>
-    <div class="glass" style="left:${screen.width - t.sideMargin - t.height}px;top:${top}px;width:${t.height}px;height:${t.height}px;border-radius:50%">
-      <svg width="22" height="6" viewBox="0 0 22 6" fill="${iconColor}"><circle cx="3" cy="3" r="2.4"/><circle cx="11" cy="3" r="2.4"/><circle cx="19" cy="3" r="2.4"/></svg>
-    </div>
-  </div>`
+  const ink = chrome.glass.ink
+  const circle = (left: number, inner: string): GlassShape => ({ left, top, width: t.height, height: t.height, radius: t.height / 2, inner })
+  return [
+    circle(t.sideMargin, `<svg width="12" height="20" viewBox="0 0 12 20"><path d="M10 2 2 10l8 8" fill="none" stroke="${t.disabledIconColor}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`),
+    {
+      left: pillLeft, top, width: pillWidth, height: t.height, radius: t.height / 2,
+      inner: `<svg style="position:absolute;left:${t.pageMenuIconLeft}px;top:${t.height / 2 - 9}px" width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="${ink}" stroke-width="1.6" stroke-linecap="round">
+          <rect x="2" y="1.5" width="14" height="8.5" rx="2"/><path d="M2 13.2h14M2 16.4h9"/></svg>
+        <span style="font-size:${t.fontSize}px;font-weight:500;color:${ink};letter-spacing:-0.3px;white-space:nowrap;max-width:${pillWidth - 90}px;overflow:hidden;text-overflow:ellipsis">${escapeHtml(hostLabel)}</span>
+        <svg style="position:absolute;right:${t.reloadIconRight}px;top:${t.height / 2 - 10}px" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="${ink}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M15.6 7.2A6.6 6.6 0 1 0 16.6 11"/><path d="M16.2 2.6v4.8h-4.8"/></svg>`,
+    },
+    circle(screen.width - t.sideMargin - t.height, `<svg width="22" height="6" viewBox="0 0 22 6" fill="${ink}"><circle cx="3" cy="3" r="2.4"/><circle cx="11" cy="3" r="2.4"/><circle cx="19" cy="3" r="2.4"/></svg>`),
+  ]
 }
 
-function collapsedToolbar(screen: { width: number, height: number }, hostLabel: string, chrome: Chrome26) {
+function collapsedToolbar(screen: { width: number, height: number }, hostLabel: string, chrome: Chrome26): GlassShape[] {
   const t = chrome.toolbarCollapsed
-  const top = screen.height - t.bottomMargin - t.height
-  return `<div class="glass" style="left:50%;transform:translateX(-50%);top:${top}px;height:${t.height}px;padding:0 ${t.paddingX}px;border-radius:${t.height / 2}px">
-    <span style="font-size:${t.fontSize}px;font-weight:500;color:#000;letter-spacing:-0.2px;white-space:nowrap">${escapeHtml(hostLabel)}</span>
-  </div>`
+  const width = Math.round(textWidth(hostLabel, t.fontSize) + 2 * t.paddingX)
+  return [{
+    left: (screen.width - width) / 2, top: screen.height - t.bottomMargin - t.height, width, height: t.height, radius: t.height / 2,
+    inner: `<span style="font-size:${t.fontSize}px;font-weight:500;color:${chrome.glass.ink};letter-spacing:-0.2px;white-space:nowrap">${escapeHtml(hostLabel)}</span>`,
+  }]
+}
+
+// Average SF Pro advance width per em for lowercase host names; the pill is sized before layout.
+const AVERAGE_ADVANCE_EM = 0.545
+
+function textWidth(text: string, fontSize: number) {
+  return text.length * fontSize * AVERAGE_ADVANCE_EM
 }
 
 function spinner(centerX: number, centerY: number, style: PanelPlan['statusBar']) {
