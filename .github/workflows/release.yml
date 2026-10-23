@@ -24,4 +24,5 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       # Trusted publishing: npm exchanges this job's OIDC token for a publish token and adds provenance.
-      - run: npm publish --access public
+      # A version already on npm (the first one is published by hand) is left alone.
+      - run: npm view "safari-shot@$(node -p 'require("./package.json").version')" version | grep -q . || npm publish --access public
