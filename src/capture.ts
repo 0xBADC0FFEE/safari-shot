@@ -117,7 +117,7 @@ export async function capturePage(browser: Browser, request: CaptureRequest): Pr
 
     if (toolbar === 'collapsed') await page.setViewportSize(largeViewport)
     const targetScroll = scenario.state === 'scrolled' ? request.scrollY : scenario.state === 'overscroll-bottom' ? Number.MAX_SAFE_INTEGER : 0
-    await page.evaluate(y => scrollTo(0, y), targetScroll)
+    await scrollToY(page, targetScroll)
     await page.waitForTimeout(SETTLE_AFTER_SCROLL_MS)
 
     const previousIds = Object.fromEntries(SIDES.flatMap(side => {
@@ -227,8 +227,10 @@ async function sampleTop(page: Page, viewport: PageFacts['viewport'], base: Rgba
   const height = Math.min(TOP_SAMPLE_MIN_HEIGHT, viewport.height)
   const png = await page.screenshot({ clip: { x: 0, y: 0, width: viewport.width, height }, animations: 'disabled', caret: 'hide', omitBackground: true })
   const { data, info } = await sharp(png).flatten({ background: { r: base.r, g: base.g, b: base.b } }).raw().toBuffer({ resolveWithObject: true })
+  // Desktop WebKit on Linux paints a dark pixel at the page's top-left corner; samples stay one CSS px inside.
+  const inset = Math.round(info.width / viewport.width)
   const at = (fraction: number, y: number): Rgba => {
-    const i = (y * info.width + Math.min(info.width - 1, Math.round(fraction * info.width))) * info.channels
+    const i = (y * info.width + inset + Math.round(fraction * (info.width - 1 - 2 * inset))) * info.channels
     return { r: data[i]!, g: data[i + 1]!, b: data[i + 2]!, a: 1 }
   }
   const fractions = Array.from({ length: EDGE_SAMPLE_COUNT }, (_, i) => i / (EDGE_SAMPLE_COUNT - 1))
@@ -322,9 +324,12 @@ function meanColorOver(rgba: Uint8Array, background: Rgba): Rgba {
   return count ? { r: Math.round(r / count), g: Math.round(g / count), b: Math.round(b / count), a: 1 } : background
 }
 
+// Screenshots right after scrollTo can show the previous frame on a slow host; two frames let the compositor catch up.
 async function scrollToY(page: Page, y: number) {
-  return page.evaluate(target => {
-    scrollTo(0, target)
+  return page.evaluate(async target => {
+    // x86-64 WebKit ignores scroll offsets near Number.MAX_SAFE_INTEGER instead of clamping them.
+    scrollTo(0, Math.min(target, document.documentElement.scrollHeight))
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
     return scrollY
   }, y)
 }
