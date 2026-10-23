@@ -98,10 +98,12 @@ async function bootSimulator(udid: string) {
   await run('xcrun', ['simctl', 'bootstatus', udid, '-b'])
 }
 
+// One DerivedData per simulator, so sessions on different simulators can build and run in parallel.
 async function buildDriver(udid: string) {
+  const derivedData = join(DRIVER_BUILD_DIR, udid)
   await run('xcodebuild', ['build-for-testing', '-project', join(DRIVER_DIR, 'SimDriver.xcodeproj'), '-scheme', 'Driver',
-    '-destination', `id=${udid}`, '-derivedDataPath', DRIVER_BUILD_DIR, '-quiet'], { maxBuffer: 64 * 1024 * 1024 })
-  const productsDir = join(DRIVER_BUILD_DIR, 'Build', 'Products')
+    '-destination', `id=${udid}`, '-derivedDataPath', derivedData, '-quiet'], { maxBuffer: 64 * 1024 * 1024 })
+  const productsDir = join(derivedData, 'Build', 'Products')
   const xctestrun = (await readdir(productsDir)).find(name => name.endsWith('.xctestrun'))
   if (!xctestrun) throw new Error(`no .xctestrun in ${productsDir}`)
   return join(productsDir, xctestrun)
