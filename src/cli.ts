@@ -21,11 +21,11 @@ plus a .json report next to each PNG, and prints a JSON manifest to stdout.
 Options:
   -d, --device <ids>        Device presets, comma-separated, or "all" (default: ${DEFAULT_DEVICE_ID})
       --ios <versions>      ${IOS_VERSIONS.join(', ')} or "all"; 18 is a simplified, portrait-only model (default: 26)
-  -s, --state <states>      ${SCROLL_STATES.join(', ')} or "all" (default: initial)
+  -s, --state <states>      ${SCROLL_STATES.join(', ')} or "all" (default: scrolled with --scroll, else initial)
   -t, --theme <themes>      ${THEMES.join(', ')} or "all" (default: light)
   -o, --orientation <list>  ${ORIENTATIONS.join(', ')} (default: portrait)
       --mode <mode>         ${MODES.join(', ')} (default: browser)
-      --scroll <px>         Scroll offset for the "scrolled" state (default: ${DEFAULT_SCROLL_PX})
+      --scroll <px>         Scroll offset for the "scrolled" state; implies it without --state (default: ${DEFAULT_SCROLL_PX})
       --overscroll <pt>     Rubber-band distance for overscroll states (default: ${DEFAULT_OVERSCROLL_PT})
       --settle <ms>         Wait after the load event (default: ${DEFAULT_SETTLE_MS})
       --engine <name>       webkit or chromium (default: webkit)
@@ -49,11 +49,11 @@ async function main() {
     options: {
       device: { type: 'string', short: 'd', default: DEFAULT_DEVICE_ID },
       ios: { type: 'string', default: '26' },
-      state: { type: 'string', short: 's', default: 'initial' },
+      state: { type: 'string', short: 's' },
       theme: { type: 'string', short: 't', default: 'light' },
       orientation: { type: 'string', short: 'o', default: 'portrait' },
       mode: { type: 'string', default: 'browser' },
-      scroll: { type: 'string', default: String(DEFAULT_SCROLL_PX) },
+      scroll: { type: 'string' },
       overscroll: { type: 'string', default: String(DEFAULT_OVERSCROLL_PT) },
       settle: { type: 'string', default: String(DEFAULT_SETTLE_MS) },
       engine: { type: 'string', default: 'webkit' },
@@ -69,7 +69,7 @@ async function main() {
 
   const devices = values.device === 'all' ? DEVICES : values.device.split(',').map(id => findDevice(id.trim()))
   const scenarios = cartesian({
-    state: pick(values.state, SCROLL_STATES, 'state'),
+    state: pick(values.state ?? (values.scroll === undefined ? 'initial' : 'scrolled'), SCROLL_STATES, 'state'),
     theme: pick(values.theme, THEMES, 'theme'),
     orientation: pick(values.orientation, ORIENTATIONS, 'orientation'),
     mode: pick(values.mode, MODES, 'mode'),
@@ -82,7 +82,7 @@ async function main() {
     }
   }
   const numbers = {
-    scrollY: nonNegative(values.scroll, 'scroll'),
+    scrollY: nonNegative(values.scroll ?? String(DEFAULT_SCROLL_PX), 'scroll'),
     overscroll: nonNegative(values.overscroll, 'overscroll'),
     settleMs: nonNegative(values.settle, 'settle'),
   }

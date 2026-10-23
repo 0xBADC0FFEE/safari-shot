@@ -29,17 +29,18 @@ safari-shot <url...> [options]
 |---|---|---|
 | `-d, --device` | preset ids, comma-separated, or `all` (`--list-devices` prints them) | `iphone-17-pro` |
 | `--ios` | `26`, `18`, `all` (18: portrait only) | `26` |
-| `-s, --state` | `initial`, `scrolled`, `overscroll-top`, `overscroll-bottom`, `all` | `initial` |
+| `-s, --state` | `initial`, `scrolled`, `overscroll-top`, `overscroll-bottom`, `all` | `scrolled` with `--scroll`, else `initial` |
 | `-t, --theme` | `light`, `dark`, `all` | `light` |
 | `-o, --orientation` | `portrait`, `landscape` | `portrait` |
 | `--mode` | `browser`, `standalone` | `browser` |
-| `--scroll` | px scrolled in the `scrolled` state | `400` |
+| `--scroll` | px scrolled in the `scrolled` state; implies it without `--state` | `400` |
 | `--overscroll` | pt of rubber-band in overscroll states | `150` |
 | `--settle` | ms to wait after `load` | `500` |
 | `--engine` | `webkit`, `chromium` | `webkit` |
 | `--out` | output directory | `./safari-shots` |
 
-Local files work too: `safari-shot ./dist/index.html`.
+Local files work too: `safari-shot ./dist/index.html`. From a checkout, put options after `--`:
+`npm run shot -- https://example.com --scroll 200`.
 
 Exit codes: `0` success, `1` runtime error, `2` bad arguments.
 
