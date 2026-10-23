@@ -3,7 +3,7 @@ import { join, basename } from 'node:path'
 import { parseArgs } from 'node:util'
 import sharp from 'sharp'
 import { webkit, type Browser } from 'playwright'
-import { startCalibrationServer, CALIBRATION_PORT } from './server.ts'
+import { startCalibrationServer, referenceReportId, CALIBRATION_PORT, REPORTS_DIR } from './server.ts'
 import { contactSheet } from './contact-sheet.ts'
 import { takeShot, type ShotReport } from '../src/shot.ts'
 import { findDevice } from '../src/devices.ts'
@@ -11,7 +11,6 @@ import { deltaE76, parseSimpleColor, relativeLuminance, toHex, type Rgba } from 
 import type { Scenario, ScrollState } from '../src/scenario.ts'
 
 const REFERENCES_DIR = join(import.meta.dirname, 'references')
-const REPORTS_DIR = join(import.meta.dirname, 'out', 'reports')
 const OUTPUT_DIR = join(import.meta.dirname, 'out', 'compare')
 export const EXPECTATIONS_DIR = join(import.meta.dirname, 'expectations')
 const SETTLE_MS = 500
@@ -102,7 +101,7 @@ export async function buildExpectations(browser: Browser, ios: string, filter: {
     for (const file of (await readdir(join(root, name))).filter(f => f.endsWith('.png')).sort()) {
       const stem = basename(file, '.png')
       if (filter.states && !filter.states.includes(parseStem(stem).scenario.state)) continue
-      const replay = await readReplay(name, stem)
+      const replay = await readReplay(ios, name, stem)
       const { report } = await render(browser, name, stem, replay)
       const reference = await rawImage(await readFile(join(root, name, file)))
       const scale = report.device.scale
@@ -163,10 +162,10 @@ async function render(browser: Browser, name: string, stem: string, replay: { sc
   })
 }
 
-async function readReplay(name: string, stem: string): Promise<{ scrollY: number, toolbar: 'expanded' | 'collapsed' }> {
+async function readReplay(ios: string, name: string, stem: string): Promise<{ scrollY: number, toolbar: 'expanded' | 'collapsed' }> {
   const fallback = { scrollY: 0, toolbar: parseStem(stem).scenario.state === 'scrolled' ? 'collapsed' as const : 'expanded' as const }
   try {
-    const states = JSON.parse(await readFile(join(REPORTS_DIR, `${name}.${stem}.json`), 'utf8')) as { inner: [number, number], scrollY: number }[]
+    const states = JSON.parse(await readFile(join(REPORTS_DIR, `${referenceReportId(ios, name, stem)}.json`), 'utf8')) as { inner: [number, number], scrollY: number }[]
     const last = states.at(-1)!
     return { scrollY: last.scrollY, toolbar: last.inner[1] > states[0]!.inner[1] ? 'collapsed' : 'expanded' }
   } catch {

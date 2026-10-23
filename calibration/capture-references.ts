@@ -4,7 +4,7 @@ import { parseArgs, promisify } from 'node:util'
 import { execFile } from 'node:child_process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { corpus } from './corpus.ts'
-import { startCalibrationServer, CALIBRATION_PORT } from './server.ts'
+import { startCalibrationServer, referenceReportId, CALIBRATION_PORT } from './server.ts'
 import { openSimulatorSession, type SimulatorSession } from './simulator.ts'
 import { SCROLL_STATES, THEMES, ORIENTATIONS, scenarioStem, type Scenario, type ScrollState } from '../src/scenario.ts'
 
@@ -28,6 +28,7 @@ const { values } = parseArgs({
     udid: { type: 'string' },
     device: { type: 'string', default: 'iphone-17-pro' },
     ios: { type: 'string', default: '26' },
+    port: { type: 'string', default: String(CALIBRATION_PORT) },
     cases: { type: 'string' },
     states: { type: 'string', default: SCROLL_STATES.join(',') },
     themes: { type: 'string', default: 'light' },
@@ -42,7 +43,8 @@ const states = values.states.split(',') as ScrollState[]
 const themes = values.themes.split(',').filter(t => (THEMES as readonly string[]).includes(t)) as Scenario['theme'][]
 const orientations = values.orientations.split(',').filter(o => (ORIENTATIONS as readonly string[]).includes(o)) as Scenario['orientation'][]
 
-const server = await startCalibrationServer()
+const port = Number(values.port)
+const server = await startCalibrationServer(port)
 let session = await openSimulatorSession(values.udid)
 const failures: string[] = []
 try {
@@ -85,7 +87,7 @@ try {
 async function captureState(session: SimulatorSession, caseName: string, stem: string, { state, orientation }: Scenario, output: string) {
   // Every openurl adds a tab; in landscape more than one tab brings up a tab bar that changes the geometry.
   if (orientation === 'landscape') await session.perform([{ action: 'activate', app: SAFARI }, { action: 'closeAllTabs', app: SAFARI }, { action: 'sleep', duration: TAB_CLOSE_SETTLE_S }])
-  await session.open(`http://localhost:${CALIBRATION_PORT}/case/${caseName}?report=${caseName}.${stem}&t=${Date.now()}`)
+  await session.open(`http://localhost:${port}/case/${caseName}?report=${referenceReportId(values.ios, caseName, stem)}&t=${Date.now()}`)
   await sleep(LOAD_SETTLE_MS)
   const { x: midX, y: midY } = GESTURE_CENTER[orientation]
   switch (state) {

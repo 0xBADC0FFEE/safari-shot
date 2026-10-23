@@ -70,8 +70,13 @@ final class DriverTests: XCTestCase {
         let closeAll = NSPredicate(format: "label BEGINSWITH 'Close All'")
         let menuItem = app.descendants(matching: .any).matching(closeAll).firstMatch
         guard menuItem.waitForExistence(timeout: 5) else {
-            let labels = app.buttons.allElementsBoundByIndex.map(\.label).joined(separator: ", ")
-            throw StepError(description: "no Close All item after long-pressing Tabs; buttons: \(labels)")
+            // With a single tab the menu offers only "Close This Tab"; dismiss it by tapping the page.
+            guard app.buttons["Close This Tab"].exists else {
+                let labels = app.buttons.allElementsBoundByIndex.map(\.label).joined(separator: ", ")
+                throw StepError(description: "no Close All item after long-pressing Tabs; buttons: \(labels)")
+            }
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            return
         }
         menuItem.tap()
         let confirm = app.buttons.matching(closeAll).firstMatch

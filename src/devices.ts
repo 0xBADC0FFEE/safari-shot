@@ -104,6 +104,11 @@ export const DEVICES: readonly DevicePreset[] = [
     safari26: safari26(68),
   },
   {
+    id: 'iphone-16-pro', name: 'iPhone 16 Pro', screen: { width: 402, height: 874 }, scale: 3,
+    safeArea: { portrait: { top: 62, bottom: 34 }, landscape: { side: 62, bottom: 21 } },
+    statusBar: DYNAMIC_ISLAND_402, safari26: safari26(62),
+  },
+  {
     id: 'iphone-17e', name: 'iPhone 17e', screen: { width: 390, height: 844 }, scale: 3,
     safeArea: { portrait: { top: 47, bottom: 34 }, landscape: { side: 47, bottom: 21 } },
     statusBar: { kind: 'split', timeCenterX: 51.8, timeBaseline: 30.3, fontSize: 15.3, iconsCenterY: 25.1, trailingInset: 14 },

@@ -5,14 +5,13 @@ import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import sharp from 'sharp'
 import { openSimulatorSession, type SimulatorSession } from './simulator.ts'
-import { startCalibrationServer } from './server.ts'
+import { startCalibrationServer, REPORTS_DIR } from './server.ts'
 
 // Measures Safari geometry per device type with the `geometry` corpus page:
 // a blue page (glass pills read as light runs) with a narrow fixed red marker at top: 0.
 
 const run = promisify(execFile)
 const OUT_DIR = join(import.meta.dirname, 'out', 'devices')
-const REPORTS_DIR = join(import.meta.dirname, 'out', 'reports')
 const LOAD_SETTLE_MS = 4000
 const SAFARI = 'com.apple.mobilesafari'
 // Its own port, so a measurement can run while references are being captured.

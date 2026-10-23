@@ -4,13 +4,24 @@ import { join, extname, normalize } from 'node:path'
 import { findCase } from './corpus.ts'
 
 const PAGES_DIR = join(import.meta.dirname, 'pages')
-const REPORTS_DIR = join(import.meta.dirname, 'out', 'reports')
+export const REPORTS_DIR = join(import.meta.dirname, 'out', 'reports')
 export const CALIBRATION_PORT = 8765
 
 const CONTENT_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.json': 'application/json',
   '.webmanifest': 'application/manifest+json',
+}
+
+/**
+ * Names the viewport report a reference capture posts, so a replay can find it.
+ * @param ios iOS major version of the reference
+ * @param caseName corpus case
+ * @param stem scenario stem of the reference image
+ * @returns report id, also the report's file name without `.json`
+ */
+export function referenceReportId(ios: string, caseName: string, stem: string) {
+  return `${caseName}.ios${ios}.${stem}`
 }
 
 /**
