@@ -1,15 +1,22 @@
 import type { Orientation } from './scenario.ts'
 
+export interface Insets {
+  readonly top: number
+  readonly bottom: number
+  readonly left: number
+  readonly right: number
+}
+
 /** Safari's browser-tab geometry for one orientation, in points. All values measured on the iOS Simulator. */
 export interface SafariGeometry {
-  /** Area covered by the status bar; the layout viewport starts below it. */
-  readonly topInset: number
-  /** Area covered by the toolbar while it is expanded (page load, top or bottom of page). */
-  readonly bottomInsetExpanded: number
-  /** Area covered by the toolbar after scrolling collapses it to the URL pill. */
-  readonly bottomInsetCollapsed: number
-  readonly leftInset: number
-  readonly rightInset: number
+  /** Portrait puts the toolbar at the bottom under a status bar; landscape puts it at the top without one. */
+  readonly toolbarEdge: 'top' | 'bottom'
+  readonly statusBarVisible: boolean
+  /**
+   * Screen areas covered by browser chrome; the layout viewport is the rest. The toolbar is expanded on load
+   * and at either end of the page, and collapses once a touch scroll moves the page.
+   */
+  readonly obscured: Readonly<Record<'expanded' | 'collapsed', Insets>>
 }
 
 /**
@@ -48,15 +55,25 @@ export interface DevicePreset {
   readonly safari26: Readonly<Record<Orientation, SafariGeometry>>
 }
 
-// iOS 26.5: the toolbar covers the same height on every iPhone (calibration/measure-devices.ts).
-const BOTTOM_INSET_EXPANDED = 98
-const BOTTOM_INSET_COLLAPSED = 58
-const LANDSCAPE_NOT_CALIBRATED: SafariGeometry = { topInset: 0, bottomInsetExpanded: 0, bottomInsetCollapsed: 0, leftInset: 0, rightInset: 0 }
+// iOS 26.5 (calibration/measure-devices.ts): the portrait toolbar covers the same height on every iPhone.
+const PORTRAIT_BOTTOM_INSET_EXPANDED = 98
+const PORTRAIT_BOTTOM_INSET_COLLAPSED = 58
+// Landscape, one open tab, measured on iPhone 17: the top toolbar covers 64 pt and hides completely once collapsed.
+const LANDSCAPE: SafariGeometry = {
+  toolbarEdge: 'top',
+  statusBarVisible: false,
+  obscured: { expanded: { top: 64, bottom: 0, left: 0, right: 0 }, collapsed: { top: 0, bottom: 0, left: 0, right: 0 } },
+}
 
-function safari26(topInset: number): DevicePreset['safari26'] {
+function safari26(statusBarInset: number): DevicePreset['safari26'] {
+  const portraitInsets = (bottom: number) => ({ top: statusBarInset, bottom, left: 0, right: 0 })
   return {
-    portrait: { topInset, bottomInsetExpanded: BOTTOM_INSET_EXPANDED, bottomInsetCollapsed: BOTTOM_INSET_COLLAPSED, leftInset: 0, rightInset: 0 },
-    landscape: LANDSCAPE_NOT_CALIBRATED,
+    portrait: {
+      toolbarEdge: 'bottom',
+      statusBarVisible: true,
+      obscured: { expanded: portraitInsets(PORTRAIT_BOTTOM_INSET_EXPANDED), collapsed: portraitInsets(PORTRAIT_BOTTOM_INSET_COLLAPSED) },
+    },
+    landscape: LANDSCAPE,
   }
 }
 

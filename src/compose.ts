@@ -70,8 +70,8 @@ export function composeHtml({ capture, plan, device, hostLabel }: ComposeInput):
   const { layout, images } = capture
   const { screen, obscured } = layout
   const chrome = CHROME_26
-  const contentLeft = layout.geometry.leftInset
-  const viewportWidth = screen.width - layout.geometry.leftInset - layout.geometry.rightInset
+  const contentLeft = obscured.left
+  const viewportWidth = screen.width - obscured.left - obscured.right
   const img = (path: string, top: number, height: number) =>
     `<img src="${path}" decoding="sync" style="position:absolute;left:${contentLeft}px;top:${top}px;width:${viewportWidth}px;height:${height}px">`
   const band = (path: string, b: Band | null) => b ? img(path, b.top, b.height) : ''
@@ -88,7 +88,7 @@ export function composeHtml({ capture, plan, device, hostLabel }: ComposeInput):
     plan.toolbar === 'expanded' && plan.fills.bottom?.kind === 'content' ? bottomPocket(plan.fills.bottom.pocket, screen, chrome) : '',
   ].join('')
   const variant = chrome.glass[plan.glass]
-  const shapes = plan.toolbar === 'expanded' ? expandedToolbar(screen, hostLabel, chrome, variant) : collapsedToolbar(screen, hostLabel, chrome, variant)
+  const shapes = toolbarShapes(layout, device, hostLabel, chrome, variant)
 
   return `<!doctype html><html><head><meta charset="utf-8"><style>
     html, body { margin: 0; width: ${screen.width}px; height: ${screen.height}px; overflow: hidden; }
@@ -102,7 +102,7 @@ export function composeHtml({ capture, plan, device, hostLabel }: ComposeInput):
     ${glassFilter(chrome, variant, plan.glassWhitened)}
     <div class="layer">${under}</div>
     ${plan.refreshControl ? spinner(screen.width / 2, obscured.top + chrome.refreshSpinner.offsetTop, plan.statusBar) : ''}
-    ${statusBar(screen.width, plan.statusBar, device.statusBar)}
+    ${layout.geometry.statusBarVisible ? statusBar(screen.width, plan.statusBar, device.statusBar) : ''}
     ${shapes.map(shape => glass(shape, under)).join('\n')}
   </body></html>`
 }
@@ -187,6 +187,42 @@ function statusGlyphs(color: string, scale: number) {
     battery: svg(width.battery, 0, `<g transform="translate(-50.5 0)"><rect x="51.3" y="0.8" width="24.4" height="11.5" rx="3.6" fill="none" stroke="${color}" stroke-opacity="0.4" stroke-width="1"/>
       <rect x="53.2" y="2.7" width="20.6" height="7.7" rx="2.1"/><path d="M76.9 4.6v4c.8-.3 1.4-1.1 1.4-2s-.6-1.7-1.4-2z" fill-opacity="0.4"/></g>`),
   }
+}
+
+function toolbarShapes(layout: PageCapture['layout'], device: DevicePreset, hostLabel: string, chrome: Chrome26, variant: GlassVariant): GlassShape[] {
+  const { screen, toolbar } = layout
+  if (layout.geometry.toolbarEdge === 'top') return toolbar === 'expanded' ? landscapeToolbar(screen, device.safeArea.landscape.side, hostLabel, chrome, variant) : []
+  return toolbar === 'expanded' ? expandedToolbar(screen, hostLabel, chrome, variant) : collapsedToolbar(screen, hostLabel, chrome, variant)
+}
+
+function landscapeToolbar(screen: { width: number }, safeAreaSide: number, hostLabel: string, chrome: Chrome26, variant: GlassVariant): GlassShape[] {
+  const t = chrome.toolbarLandscape
+  const ink = variant.ink
+  const side = safeAreaSide + t.safeAreaGap
+  const circle = (left: number, inner: string): GlassShape => ({ left, top: t.top, width: t.height, height: t.height, radius: t.height / 2, inner })
+  const icon = (path: string) => `<svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="${ink}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${path}</svg>`
+  const groupWidth = t.groupButtons * t.height
+  const pillLeft = (screen.width - t.urlPillWidth) / 2
+  return [
+    circle(side, `<svg width="12" height="20" viewBox="0 0 12 20"><path d="M10 2 2 10l8 8" fill="none" stroke="${variant.disabledInk}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`),
+    circle(side + t.height + t.gap, icon('<path d="M11 5.5C9 4 6 3.6 2.5 4.2v13C6 16.6 9 17 11 18.5c2-1.5 5-1.9 8.5-1.3v-13C16 3.6 13 4 11 5.5zM11 5.5v13"/>')),
+    {
+      left: pillLeft, top: t.top, width: t.urlPillWidth, height: t.height, radius: t.height / 2,
+      inner: `<svg style="position:absolute;left:12px;top:${t.height / 2 - 9}px" width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="${ink}" stroke-width="1.6" stroke-linecap="round">
+          <rect x="2" y="1.5" width="14" height="8.5" rx="2"/><path d="M2 13.2h14M2 16.4h9"/></svg>
+        <span style="font-size:${t.fontSize}px;font-weight:500;color:${ink};letter-spacing:-0.3px;white-space:nowrap;max-width:${t.urlPillWidth - 90}px;overflow:hidden;text-overflow:ellipsis">${escapeHtml(hostLabel)}</span>
+        <svg style="position:absolute;right:12px;top:${t.height / 2 - 10}px" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="${ink}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M15.6 7.2A6.6 6.6 0 1 0 16.6 11"/><path d="M16.2 2.6v4.8h-4.8"/></svg>`,
+    },
+    {
+      left: screen.width - side - groupWidth, top: t.top, width: groupWidth, height: t.height, radius: t.height / 2,
+      inner: [
+        icon('<path d="M11 2.5v11M7 6.5l4-4 4 4M6.5 9.5H5v10h12v-10h-1.5"/>'),
+        icon('<path d="M11 4v14M4 11h14"/>'),
+        icon('<rect x="6.5" y="6.5" width="12" height="12" rx="2.5"/><path d="M15.5 3.5h-9a3 3 0 0 0-3 3v9"/>'),
+      ].map(svg => `<div style="width:${t.height}px;display:flex;justify-content:center">${svg}</div>`).join(''),
+    },
+  ]
 }
 
 function expandedToolbar(screen: { width: number, height: number }, hostLabel: string, chrome: Chrome26, variant: GlassVariant): GlassShape[] {

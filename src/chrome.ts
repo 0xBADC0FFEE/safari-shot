@@ -16,6 +16,17 @@ export interface Chrome26 {
     readonly paddingX: number
     readonly fontSize: number
   }
+  /** Landscape top toolbar: back and bookmarks circles, a centered URL pill, and a share/new tab/tabs group. */
+  readonly toolbarLandscape: {
+    readonly top: number
+    readonly height: number
+    /** Gap between the landscape safe area and the outermost controls. */
+    readonly safeAreaGap: number
+    readonly gap: number
+    readonly urlPillWidth: number
+    readonly groupButtons: number
+    readonly fontSize: number
+  }
   readonly glass: {
     readonly blur: number
     readonly shadow: string
@@ -46,6 +57,7 @@ export const CHROME_26: Chrome26 = {
   fontFamily: `-apple-system, "SF Pro Text", "SF Pro", system-ui, "Inter", "Helvetica Neue", Arial, sans-serif`,
   toolbarExpanded: { height: 48, sideMargin: 34, gap: 7, bottomMargin: 34, fontSize: 17, pageMenuIconLeft: 16, reloadIconRight: 14 },
   toolbarCollapsed: { height: 32, bottomMargin: 14, paddingX: 18, fontSize: 12.6 },
+  toolbarLandscape: { top: 10, height: 44, safeAreaGap: 10, gap: 12, urlPillWidth: 317.7, groupButtons: 3, fontSize: 17 },
   glass: {
     blur: 2,
     // Fitted on the red swatch: content is 11% darker at the pill's bottom edge, 2% at 33pt below it.

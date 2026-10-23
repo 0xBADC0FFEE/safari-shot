@@ -3,7 +3,7 @@ import sharp from 'sharp'
 import { probePage, SIDES, type PageFacts, type Side, type ClientRect } from './page-probe.ts'
 import { resolveEdge, predominantColor, NO_EDGES, type FixedEdges, type PredominantColor } from './edges.ts'
 import { blendSourceOver, isVisible, WHITE, BLACK, type Rgba } from './color.ts'
-import { screenSize, type DevicePreset, type SafariGeometry } from './devices.ts'
+import { screenSize, type DevicePreset, type Insets, type SafariGeometry } from './devices.ts'
 import type { Scenario } from './scenario.ts'
 
 export const IOS_SAFARI_USER_AGENT = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Mobile/15E148 Safari/604.1'
@@ -48,7 +48,7 @@ export interface PageCapture {
   readonly layout: PageLayout
   /** Mean color on screen under the status bar, the under-page color where no content is; glyphs adapt to it. */
   readonly contentUnderStatusBar: Rgba
-  /** Mean color on screen under the bottom inset, the under-page color where no content is; glass adapts to it. */
+  /** Mean color on screen under the toolbar's inset, the under-page color where no content is; glass adapts to it. */
   readonly contentUnderToolbar: Rgba
   /** Predominant color of the page content along the screen's bottom edge; the bottom scroll pocket uses it. */
   readonly contentBottomEdge: PredominantColor
@@ -85,11 +85,11 @@ export async function capturePage(browser: Browser, request: CaptureRequest): Pr
   const screen = screenSize(device, scenario.orientation)
   const geometry = device.safari26[scenario.orientation]
   const toolbar = request.toolbar ?? (scenario.state === 'scrolled' ? 'collapsed' : 'expanded')
-  const viewportHeight = (bottomInset: number) => screen.height - geometry.topInset - bottomInset
-  const largeViewport = { width: screen.width - geometry.leftInset - geometry.rightInset, height: viewportHeight(geometry.bottomInsetCollapsed) }
+  const viewportFor = (insets: Insets) => ({ width: screen.width - insets.left - insets.right, height: screen.height - insets.top - insets.bottom })
+  const largeViewport = viewportFor(geometry.obscured.collapsed)
 
   const context = await browser.newContext({
-    viewport: { width: largeViewport.width, height: viewportHeight(geometry.bottomInsetExpanded) },
+    viewport: viewportFor(geometry.obscured.expanded),
     deviceScaleFactor: device.scale,
     isMobile: browser.browserType().name() !== 'firefox',
     hasTouch: true,
@@ -107,7 +107,7 @@ export async function capturePage(browser: Browser, request: CaptureRequest): Pr
     const pageBackgroundAtLoad = underPageBackground(factsAtLoad, scenario.theme)
     const edgesAtLoad = await resolveEdges(page, factsAtLoad, pageBackgroundAtLoad, NO_EDGES)
 
-    if (toolbar === 'collapsed') await page.setViewportSize({ width: largeViewport.width, height: largeViewport.height })
+    if (toolbar === 'collapsed') await page.setViewportSize(largeViewport)
     const targetScroll = scenario.state === 'scrolled' ? request.scrollY : scenario.state === 'overscroll-bottom' ? Number.MAX_SAFE_INTEGER : 0
     await page.evaluate(y => scrollTo(0, y), targetScroll)
     await page.waitForTimeout(SETTLE_AFTER_SCROLL_MS)
@@ -123,13 +123,8 @@ export async function capturePage(browser: Browser, request: CaptureRequest): Pr
     const shift = scenario.state === 'overscroll-top' ? request.overscroll : scenario.state === 'overscroll-bottom' ? -request.overscroll : 0
     const layout: PageLayout = {
       screen, geometry, toolbar,
-      obscured: {
-        top: geometry.topInset,
-        bottom: toolbar === 'collapsed' ? geometry.bottomInsetCollapsed : geometry.bottomInsetExpanded,
-        left: geometry.leftInset,
-        right: geometry.rightInset,
-      },
-      viewportTop: geometry.topInset + shift,
+      obscured: geometry.obscured[toolbar],
+      viewportTop: geometry.obscured[toolbar].top + shift,
       viewportHeight: facts.viewport.height,
       scrollY: facts.scroll.y,
     }
@@ -138,7 +133,9 @@ export async function capturePage(browser: Browser, request: CaptureRequest): Pr
     return {
       facts, edgesAtLoad, edges, underPageBackground: pageBackground, manifest: await fetchManifest(context, facts.manifestHref), layout, images,
       contentUnderStatusBar: meanColorOver(content.rows(0, layout.obscured.top), pageBackground),
-      contentUnderToolbar: meanColorOver(content.rows(layout.screen.height - layout.obscured.bottom, layout.screen.height), pageBackground),
+      contentUnderToolbar: meanColorOver(geometry.toolbarEdge === 'top'
+        ? content.rows(0, layout.obscured.top)
+        : content.rows(layout.screen.height - layout.obscured.bottom, layout.screen.height), pageBackground),
       contentBottomEdge: predominantColor(content.rows(layout.screen.height - BOTTOM_EDGE_STRIP_PT, layout.screen.height)),
     }
   } finally {
@@ -255,7 +252,7 @@ async function contentOnScreen(images: PageCapture['images'], layout: PageLayout
   const scale = viewportPixels / layout.viewportHeight
   const width = Math.round(layout.screen.width * scale)
   const height = Math.round(layout.screen.height * scale)
-  const left = Math.round(layout.geometry.leftInset * scale)
+  const left = Math.round(layout.obscured.left * scale)
   const placed = [
     { png: images.viewport, top: layout.viewportTop },
     ...[images.above, images.below].filter(band => band !== null).map(band => ({ png: band.png, top: band.top })),

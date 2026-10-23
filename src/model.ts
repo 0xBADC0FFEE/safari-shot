@@ -49,7 +49,7 @@ export function planPanels(capture: PageCapture, scenario: Scenario): PanelPlan 
   const pockets: Record<Side, ScrollPocket> = { top: underPagePocket, left: underPagePocket, right: underPagePocket, bottom: bottomPocket(capture) }
   const fills = Object.fromEntries(SIDES.map(side => [side, insetFill(layout.obscured[side], edges[side], underPageBackground, pockets[side])])) as Record<Side, InsetFill | null>
   const topFill = fills.top
-  const bottomFill = fills.bottom
+  const toolbarFill = fills[layout.geometry.toolbarEdge]
   const topExtensionGrowth = scenario.state === 'overscroll-top' && topFill?.kind === 'extension' && !colorsAreSimilar(underPageBackground, topFill.color)
     ? Math.max(0, layout.viewportTop - layout.obscured.top)
     : 0
@@ -59,8 +59,8 @@ export function planPanels(capture: PageCapture, scenario: Scenario): PanelPlan 
     fills,
     topExtensionGrowth,
     statusBar: luma(behindStatusBar) <= LIGHT_CONTENT_MAX_LUMA ? 'light-content' : 'dark-content',
-    glass: luma(bottomFill?.kind === 'extension' ? bottomFill.color : capture.contentUnderToolbar) <= DARK_GLASS_MAX_LUMA ? 'dark' : 'light',
-    glassWhitened: bottomFill?.kind === 'extension' ? !bottomFill.fromDimmingLayer : pockets.bottom === DEFAULT_BOTTOM_POCKET,
+    glass: luma(toolbarFill?.kind === 'extension' ? toolbarFill.color : capture.contentUnderToolbar) <= DARK_GLASS_MAX_LUMA ? 'dark' : 'light',
+    glassWhitened: toolbarFill?.kind === 'extension' ? !toolbarFill.fromDimmingLayer : toolbarFill?.kind === 'content' && toolbarFill.pocket === DEFAULT_BOTTOM_POCKET,
     toolbar: layout.toolbar,
     refreshControl: scenario.state === 'overscroll-top',
     themeColor: { ...activeThemeColor(capture, scenario), usedByPanels: false },

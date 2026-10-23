@@ -71,7 +71,7 @@ async function main() {
     mode: pick(values.mode, MODES, 'mode'),
   })
   for (const s of scenarios) {
-    if (s.orientation !== 'portrait' || s.mode !== 'browser') throw new UsageError(`${s.orientation}/${s.mode} is not calibrated yet; use portrait browser`)
+    if (s.mode !== 'browser') throw new UsageError(`${s.mode} mode is not calibrated yet; use browser`)
   }
   const numbers = {
     scrollY: nonNegative(values.scroll, 'scroll'),
