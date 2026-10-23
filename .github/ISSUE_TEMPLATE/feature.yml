@@ -1,0 +1,10 @@
+name: Feature
+description: A device, iOS version, state or report field safari-shot should support.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: What you need to check, and what blocks you today
+    validations:
+      required: true

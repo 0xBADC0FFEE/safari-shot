@@ -1,0 +1,31 @@
+name: Shot differs from Safari
+description: safari-shot renders a page differently from iOS Safari.
+labels: [mismatch]
+body:
+  - type: input
+    id: command
+    attributes:
+      label: Command
+      placeholder: npx -y safari-shot https://example.com --state scrolled
+    validations:
+      required: true
+  - type: input
+    id: safari
+    attributes:
+      label: Device and iOS version where you saw Safari's rendering
+      placeholder: iPhone 17 Pro, iOS 26.5 (Simulator)
+    validations:
+      required: true
+  - type: textarea
+    id: difference
+    attributes:
+      label: What differs
+      description: Attach the safari-shot PNG and a Safari screenshot of the same page and state.
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: Report JSON
+      description: The .json report next to the PNG.
+      render: json

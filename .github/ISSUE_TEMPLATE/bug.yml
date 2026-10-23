@@ -1,0 +1,24 @@
+name: Bug
+description: The CLI fails, crashes or rejects valid input.
+labels: [bug]
+body:
+  - type: input
+    id: command
+    attributes:
+      label: Command
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: safari-shot version, Node.js version, OS
+      placeholder: 0.1.0, Node 24.16, Ubuntu 24.04
+    validations:
+      required: true
