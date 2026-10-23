@@ -44,7 +44,8 @@ export async function composeScreenshot(browser: Browser, input: ComposeInput): 
     })
     const page = await context.newPage()
     await page.goto(`${ASSET_ORIGIN}/index.html`, { waitUntil: 'load' })
-    // WebKit fires load before large images are decoded, and the screenshot would miss them.
+    // WebKit decodes large images asynchronously and can screenshot before painting them;
+    // decoding="sync" on every <img> plus this wait keeps them in the frame.
     await page.evaluate(() => Promise.all([document.fonts.ready, ...[...document.images].map(i => i.decode())]).then(() => undefined))
     return await page.screenshot({ animations: 'disabled' })
   } finally {
@@ -72,7 +73,7 @@ export function composeHtml({ capture, plan, hostLabel }: ComposeInput): string 
   const contentLeft = layout.geometry.leftInset
   const viewportWidth = screen.width - layout.geometry.leftInset - layout.geometry.rightInset
   const img = (path: string, top: number, height: number) =>
-    `<img src="${path}" style="position:absolute;left:${contentLeft}px;top:${top}px;width:${viewportWidth}px;height:${height}px">`
+    `<img src="${path}" decoding="sync" style="position:absolute;left:${contentLeft}px;top:${top}px;width:${viewportWidth}px;height:${height}px">`
   const band = (path: string, b: Band | null) => b ? img(path, b.top, b.height) : ''
 
   const topPocketColor = plan.fills.top?.kind === 'extension' ? plan.fills.top.color : plan.underPageBackground
