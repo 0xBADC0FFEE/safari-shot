@@ -127,6 +127,8 @@ export async function buildExpectations(renderer: Renderer, ios: IosVersion, fil
     if (filter.cases && !filter.cases.includes(name)) continue
     for (const file of (await readdir(join(root, name))).filter(f => f.endsWith('.png')).sort()) {
       const stem = basename(file, '.png')
+      // regionsFor lays out portrait regions only; landscape is not calibrated yet.
+      if (parseStem(stem).scenario.orientation === 'landscape') continue
       if (filter.states && !filter.states.includes(parseStem(stem).scenario.state)) continue
       if (filter.match && !filter.match.test(stem)) continue
       const replay = await readReplay(ios, name, stem)

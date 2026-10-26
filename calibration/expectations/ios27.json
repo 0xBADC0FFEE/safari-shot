@@ -1961,6 +1961,246 @@
  },
  {
   "ios": "27",
+  "name": "fixed-bottom-lifted",
+  "stem": "iphone-17-pro.portrait.dark.initial",
+  "scrollY": 0,
+  "toolbar": "expanded",
+  "regions": [
+   {
+    "name": "status-band",
+    "x": 120,
+    "y": 2,
+    "width": 150,
+    "height": 58,
+    "tolerance": 3,
+    "color": "#ffffff"
+   },
+   {
+    "name": "bottom-left-edge",
+    "x": 0,
+    "y": 776,
+    "width": 30,
+    "height": 98,
+    "tolerance": 4,
+    "color": "#f9f9f9"
+   },
+   {
+    "name": "below-toolbar",
+    "x": 90,
+    "y": 844,
+    "width": 220,
+    "height": 28,
+    "tolerance": 4,
+    "color": "#fdfdfd"
+   },
+   {
+    "name": "glass-pill",
+    "x": 135,
+    "y": 797,
+    "width": 25,
+    "height": 8,
+    "tolerance": 6,
+    "color": "#b5b5b5"
+   },
+   {
+    "name": "glass-back",
+    "x": 50,
+    "y": 806,
+    "width": 6,
+    "height": 20,
+    "tolerance": 6,
+    "color": "#b4b4b5"
+   }
+  ],
+  "statusBar": "dark-content"
+ },
+ {
+  "ios": "27",
+  "name": "fixed-bottom-lifted",
+  "stem": "iphone-17-pro.portrait.dark.overscroll-bottom",
+  "scrollY": 1726,
+  "toolbar": "expanded",
+  "regions": [],
+  "statusBar": "dark-content"
+ },
+ {
+  "ios": "27",
+  "name": "fixed-bottom-lifted",
+  "stem": "iphone-17-pro.portrait.dark.overscroll-top",
+  "scrollY": 0,
+  "toolbar": "expanded",
+  "regions": [
+   {
+    "name": "status-band",
+    "x": 120,
+    "y": 2,
+    "width": 150,
+    "height": 58,
+    "tolerance": 3,
+    "color": "#ffffff"
+   }
+  ],
+  "statusBar": "dark-content"
+ },
+ {
+  "ios": "27",
+  "name": "fixed-bottom-lifted",
+  "stem": "iphone-17-pro.portrait.dark.scrolled",
+  "scrollY": 344,
+  "toolbar": "collapsed",
+  "regions": [
+   {
+    "name": "status-band",
+    "x": 120,
+    "y": 2,
+    "width": 150,
+    "height": 58,
+    "tolerance": 3,
+    "color": "#f1f1f1"
+   },
+   {
+    "name": "bottom-left-edge",
+    "x": 0,
+    "y": 816,
+    "width": 140,
+    "height": 58,
+    "tolerance": 4,
+    "color": "#f4f4f4"
+   },
+   {
+    "name": "glass-collapsed",
+    "x": 161,
+    "y": 834,
+    "width": 8,
+    "height": 18,
+    "tolerance": 6,
+    "color": "#adadad"
+   }
+  ],
+  "statusBar": "dark-content"
+ },
+ {
+  "ios": "27",
+  "name": "fixed-bottom-lifted",
+  "stem": "iphone-17-pro.portrait.light.initial",
+  "scrollY": 0,
+  "toolbar": "expanded",
+  "regions": [
+   {
+    "name": "status-band",
+    "x": 120,
+    "y": 2,
+    "width": 150,
+    "height": 58,
+    "tolerance": 3,
+    "color": "#ffffff"
+   },
+   {
+    "name": "bottom-left-edge",
+    "x": 0,
+    "y": 776,
+    "width": 30,
+    "height": 98,
+    "tolerance": 4,
+    "color": "#f9f9f9"
+   },
+   {
+    "name": "below-toolbar",
+    "x": 90,
+    "y": 844,
+    "width": 220,
+    "height": 28,
+    "tolerance": 4,
+    "color": "#fdfdfd"
+   },
+   {
+    "name": "glass-pill",
+    "x": 135,
+    "y": 797,
+    "width": 25,
+    "height": 8,
+    "tolerance": 6,
+    "color": "#f8f8f8"
+   },
+   {
+    "name": "glass-back",
+    "x": 50,
+    "y": 806,
+    "width": 6,
+    "height": 20,
+    "tolerance": 6,
+    "color": "#eeeeef"
+   }
+  ],
+  "statusBar": "dark-content"
+ },
+ {
+  "ios": "27",
+  "name": "fixed-bottom-lifted",
+  "stem": "iphone-17-pro.portrait.light.overscroll-bottom",
+  "scrollY": 1726,
+  "toolbar": "expanded",
+  "regions": [],
+  "statusBar": "dark-content"
+ },
+ {
+  "ios": "27",
+  "name": "fixed-bottom-lifted",
+  "stem": "iphone-17-pro.portrait.light.overscroll-top",
+  "scrollY": 0,
+  "toolbar": "expanded",
+  "regions": [
+   {
+    "name": "status-band",
+    "x": 120,
+    "y": 2,
+    "width": 150,
+    "height": 58,
+    "tolerance": 3,
+    "color": "#ffffff"
+   }
+  ],
+  "statusBar": "dark-content"
+ },
+ {
+  "ios": "27",
+  "name": "fixed-bottom-lifted",
+  "stem": "iphone-17-pro.portrait.light.scrolled",
+  "scrollY": 336,
+  "toolbar": "collapsed",
+  "regions": [
+   {
+    "name": "status-band",
+    "x": 120,
+    "y": 2,
+    "width": 150,
+    "height": 58,
+    "tolerance": 3,
+    "color": "#f6f6f6"
+   },
+   {
+    "name": "bottom-left-edge",
+    "x": 0,
+    "y": 816,
+    "width": 140,
+    "height": 58,
+    "tolerance": 4,
+    "color": "#f3f3f3"
+   },
+   {
+    "name": "glass-collapsed",
+    "x": 161,
+    "y": 834,
+    "width": 8,
+    "height": 18,
+    "tolerance": 6,
+    "color": "#f6f6f6"
+   }
+  ],
+  "statusBar": "dark-content"
+ },
+ {
+  "ios": "27",
   "name": "fixed-overlay-full",
   "stem": "iphone-17-pro.portrait.dark.initial",
   "scrollY": 0,

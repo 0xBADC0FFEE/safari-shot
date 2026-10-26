@@ -58,6 +58,7 @@ export const corpus: readonly CorpusCase[] = [
   { name: 'fixed-top-nobg-child', html: page({ style: `${fixedBar('top', '')} .bar-top > div { height: 100%; background: #43a047; }`, body: '<div class="bar-top"><div></div></div>' }) },
   { name: 'sticky-top', html: page({ style: '.sticky { position: sticky; top: 0; height: 56px; background: #5e35b1; z-index: 10; }', body: '<p class="row">Above sticky</p><div class="sticky"></div>' }) },
   { name: 'fixed-bottom', html: page({ style: fixedBar('bottom', 'background: #009688;'), body: '<div class="bar-bottom"></div>' }) },
+  { name: 'fixed-bottom-lifted', html: page({ style: fixedBar('bottom', 'background: #009688; bottom: 6px;'), body: '<div class="bar-bottom"></div>' }) },
   { name: 'fixed-both', html: page({ style: `${fixedBar('top', 'background: #e91e63;')} ${fixedBar('bottom', 'background: #3f51b5;')}`, body: '<div class="bar-top"></div><div class="bar-bottom"></div>' }) },
   { name: 'fixed-overlay-full', html: page({ style: '.overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.4); z-index: 20; }', body: '<div class="overlay"></div>' }) },
   { name: 'fixed-pointer-none', html: page({ style: `.layer { position: fixed; inset: 0; pointer-events: none; z-index: 30; } ${fixedBar('top', 'background: #795548;')}`, body: '<div class="layer"></div><div class="bar-top"></div>' }) },
