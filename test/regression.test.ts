@@ -26,6 +26,7 @@ const IOS26_DARK_SHADOW = 'dark-appearance glass shadow: content just below the 
 const IOS27_MIXED_BACKDROP = 'iOS 27 glass: the mean backdrop does not predict the fill over striped or two-color content'
 const IOS27_TOP_EDGE = 'iOS 27 top scroll edge: Safari tints the scrolled content under the status bar in a way the model does not draw'
 const IOS27_GLYPHS = 'iOS 27 status bar: the mean-luma rule picks the wrong glyphs over a gradient or two-color top'
+const LINUX_FONT = 'Linux: -apple-system falls back to a font that places less row text under the collapsed glass sample (ΔE 6.5; macOS 3.2)'
 // `<case> <theme>.<state>` on the iPhone 17 Pro in portrait.
 const gaps = (ios: string, gap: string, ...stems: string[]) => Object.fromEntries(stems.map(stem => [`ios${ios} ${stem.replace(' ', ' iphone-17-pro.portrait.')}`, gap]))
 const KNOWN_GAPS: Readonly<Record<string, string>> = {
@@ -41,6 +42,7 @@ const KNOWN_GAPS: Readonly<Record<string, string>> = {
   ...gaps('26', 'status bar: the glyph style misses over a body gradient once it scrolls past the top', 'body-gradient dark.scrolled', 'body-gradient dark.overscroll-bottom'),
   'ios26 html-body-colors iphone-17-pro.portrait.light.scrolled':
     'status bar: white glyphs over green body with red html sides; the mean-luma rule puts it at 0.404, past the 0.39 switch',
+  ...(process.platform === 'linux' ? gaps('26', LINUX_FONT, 'body-color dark.scrolled') : {}),
   'ios18 fixed-both': IOS18_FIXED_BAR_TINT,
   'ios18 fixed-pointer-none': IOS18_FIXED_BAR_TINT,
   'ios18 fixed-overlay-full': IOS18_OVERLAY,
