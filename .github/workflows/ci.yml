@@ -30,23 +30,30 @@ jobs:
       - run: npm pack --dry-run
       - run: node dist/cli.js --version
 
-  playwright:
-    name: Playwright version
+  plan:
+    name: Plan tests
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.lock.outputs.version }}
+      playwright: ${{ steps.plan.outputs.playwright }}
+      suites: ${{ steps.plan.outputs.suites }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - id: lock
-        run: echo "version=$(node -p 'require("./package-lock.json").packages["node_modules/playwright"].version')" >> "$GITHUB_OUTPUT"
+      - id: plan
+        run: |
+          echo "playwright=$(node -p 'require("./package-lock.json").packages["node_modules/playwright"].version')" >> "$GITHUB_OUTPUT"
+          echo "suites=$(node -p 'JSON.stringify(["unit", ...fs.readdirSync("calibration/expectations").filter(f => /^ios\d+\.json$/.test(f)).map(f => f.slice(0, -5))])')" >> "$GITHUB_OUTPUT"
 
-  test:
-    name: Test
-    needs: playwright
+  suite:
+    name: Test (${{ matrix.suite }})
+    needs: plan
     runs-on: ubuntu-latest
     timeout-minutes: 60
     # The image ships WebKit and its system libraries for this exact Playwright version; apt installs take 20+ minutes.
-    container: mcr.microsoft.com/playwright:v${{ needs.playwright.outputs.version }}-noble
+    container: mcr.microsoft.com/playwright:v${{ needs.plan.outputs.playwright }}-noble
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: ${{ fromJSON(needs.plan.outputs.suites) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -54,4 +61,20 @@ jobs:
           node-version: lts/*
           cache: npm
       - run: npm ci
-      - run: npm test
+      # Excluded by file: skipping every regression test by pattern still runs its after hook, which crashes.
+      - if: matrix.suite == 'unit'
+        shell: bash
+        run: |
+          shopt -s extglob
+          node --test test/!(regression).test.ts
+      - if: matrix.suite != 'unit'
+        run: node --test --test-name-pattern '^${{ matrix.suite }} ' test/regression.test.ts
+
+  # The ruleset on main requires a check named Test; it stands for every suite.
+  test:
+    name: Test
+    needs: suite
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: test '${{ needs.suite.result }}' = success
