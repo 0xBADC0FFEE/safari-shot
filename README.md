@@ -52,7 +52,7 @@ safari-shot <url...> [options]
 | `--mode` | `browser`, `standalone` | `browser` |
 | `--scroll` | px scrolled in the `scrolled` state; implies it without `--state` | `400` |
 | `--overscroll` | pt of rubber-band in overscroll states | `150` |
-| `--settle` | ms to wait after `load` | `500` |
+| `--settle` | ms to wait after `load` (capped at 10 s, then the capture goes ahead) | `500` |
 | `--engine` | `webkit`, `chromium` | `webkit` |
 | `--out` | output directory | `./safari-shots` |
 
