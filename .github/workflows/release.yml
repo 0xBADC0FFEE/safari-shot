@@ -1,28 +1,39 @@
 name: Release
 
 on:
-  release:
-    types: [published]
+  push:
+    branches: [main]
 
 permissions:
   contents: read
-  id-token: write
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
 
 jobs:
-  publish:
-    name: Publish to npm
+  release:
+    name: Release to npm
     runs-on: ubuntu-latest
     environment: npm
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: lts/*
-          registry-url: https://registry.npmjs.org
-      - name: Check the tag matches package.json
-        run: test "v$(node -p 'require("./package.json").version')" = "${{ github.event.release.tag_name }}"
+          cache: npm
       - run: npm ci
       - run: npm run typecheck
-      # Trusted publishing: npm exchanges this job's OIDC token for a publish token and adds provenance.
-      # A version already on npm (the first one is published by hand) is left alone.
-      - run: npm view "safari-shot@$(node -p 'require("./package.json").version')" version | grep -q . || npm publish --access public
+      # Not a devDependency: the npm CLI it bundles carries advisories no release has fixed yet.
+      # Trusted publishing: the npm plugin exchanges this job's OIDC token for a publish token and adds provenance.
+      - run: npx --yes semantic-release@25.0.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
