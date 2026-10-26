@@ -1,4 +1,4 @@
-import type { Browser, BrowserContext, Page, PageScreenshotOptions } from 'playwright'
+import { errors, type Browser, type BrowserContext, type Page, type PageScreenshotOptions } from 'playwright'
 import sharp from 'sharp'
 import { probePage, SIDES, type PageFacts, type Side, type ClientRect } from './page-probe.ts'
 import { resolveEdge, predominantColor, NO_EDGES, type FixedEdges, type PredominantColor } from './edges.ts'
@@ -12,6 +12,11 @@ const EDGE_SAMPLE_COUNT = 5
 const HIDE_ATTRIBUTE = 'data-safari-shot-hide'
 const LAYER_ATTRIBUTE = 'data-safari-shot-layer'
 const SETTLE_AFTER_SCROLL_MS = 250
+// Pages whose third-party scripts never respond (blocked analytics) never fire load; capture them anyway.
+const LOAD_WAIT_LIMIT_MS = 10_000
+// Playwright's screenshot awaits document.fonts.ready, which WebKit holds until load: a page that never loads
+// would never be captured. waitForFonts replaces that wait with one on font status, which load does not gate.
+process.env.PW_TEST_SCREENSHOT_NO_FONTS_READY ??= '1'
 // Safari's _sampledPageTopColorMaxDifference and _sampledPageTopColorMinHeight are private. iOS 18.6 references bound
 // the height: a 300 pt hero is sampled, a 56 pt fixed bar and a 40 pt html margin above the body are not.
 const TOP_SAMPLE_MAX_DIFFERENCE = 5
@@ -26,7 +31,7 @@ export interface CaptureRequest {
   readonly scrollY: number
   /** Rubber-band distance for overscroll states, in points. */
   readonly overscroll: number
-  /** Extra wait after the load event, in ms. */
+  /** Extra wait after the load event (or after the load wait gives up), in ms. */
   readonly settleMs: number
   /** Overrides the toolbar state the scroll state implies; used to replay simulator references. */
   readonly toolbar?: 'expanded' | 'collapsed'
@@ -105,7 +110,9 @@ export async function capturePage(browser: Browser, request: CaptureRequest): Pr
   })
   try {
     const page = await context.newPage()
-    await page.goto(request.url, { waitUntil: 'load' })
+    await page.goto(request.url, { waitUntil: 'domcontentloaded' })
+    await page.waitForLoadState('load', { timeout: LOAD_WAIT_LIMIT_MS }).catch((error: unknown) => { if (!(error instanceof errors.TimeoutError)) throw error })
+    await waitForFonts(page)
     await page.waitForTimeout(request.settleMs)
 
     const probe = (previousIds: Partial<Record<Side, string>> = {}) =>
@@ -118,6 +125,7 @@ export async function capturePage(browser: Browser, request: CaptureRequest): Pr
     if (toolbar === 'collapsed') await page.setViewportSize(largeViewport)
     const targetScroll = scenario.state === 'scrolled' ? request.scrollY : scenario.state === 'overscroll-bottom' ? Number.MAX_SAFE_INTEGER : 0
     await scrollToY(page, targetScroll)
+    await waitForFonts(page)
     await page.waitForTimeout(SETTLE_AFTER_SCROLL_MS)
 
     const previousIds = Object.fromEntries(SIDES.flatMap(side => {
@@ -360,4 +368,8 @@ async function fetchManifest(context: BrowserContext, href: string | null): Prom
   } catch {
     return null
   }
+}
+
+async function waitForFonts(page: Page) {
+  await page.waitForFunction(() => document.fonts.status === 'loaded')
 }
