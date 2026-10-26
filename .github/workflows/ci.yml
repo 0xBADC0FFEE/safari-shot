@@ -40,9 +40,26 @@ jobs:
       - id: lock
         run: echo "version=$(node -p 'require("./package-lock.json").packages["node_modules/playwright"].version')" >> "$GITHUB_OUTPUT"
 
+  changes:
+    name: Changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      # A failed diff (unknown base on a new branch) exits non-zero, so it counts as changed.
+      - id: diff
+        run: |
+          if git diff --quiet "${{ github.event.pull_request.base.sha || github.event.before }}" HEAD -- src test calibration package.json package-lock.json 'tsconfig*.json'
+          then echo code=false; else echo code=true; fi >> "$GITHUB_OUTPUT"
+
   test:
     name: Test
-    needs: playwright
+    needs: [playwright, changes]
+    # A skipped job satisfies the required Test check.
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     # The image ships WebKit and its system libraries for this exact Playwright version; apt installs take 20+ minutes.

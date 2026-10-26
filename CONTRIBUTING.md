@@ -124,7 +124,8 @@ layout, not on the model, so a model change needs no rebuild; rerun the tests in
 
 - `main` is protected: changes land through squash-merged pull requests with green `Build` and
   `Test` checks. The pull request title becomes the commit on `main`, so it follows Conventional
-  Commits.
+  Commits. `Test` runs only when `src/`, `test/`, `calibration/`, `package*.json` or `tsconfig*.json`
+  change; otherwise it is skipped, which satisfies the check.
 - **Release** is automatic: on every push to `main` the [release workflow](.github/workflows/release.yml)
   runs semantic-release, which picks the version from the commits since the last `v*` tag
   (`fix:` → patch, `feat:` → minor, `!` or `BREAKING CHANGE:` → major; other types release
