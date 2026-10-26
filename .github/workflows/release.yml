@@ -32,6 +32,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
+      # The version step validates the bin path before prepack builds it.
+      - run: npm run build
       # Not a devDependency: the npm CLI it bundles carries advisories no release has fixed yet.
       # npm rejects this repository's immutable OIDC subjects (npm/cli#9969), so trusted publishing
       # fails and the plugin falls back to NPM_TOKEN; OIDC still signs provenance. Back to OIDC: #8.
