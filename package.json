@@ -1,6 +1,6 @@
 {
   "name": "safari-shot",
-  "version": "0.1.0",
+  "version": "0.0.0-development",
   "description": "Screenshots of web pages as iOS Safari shows them on iPhone, including what Safari paints under the status bar and the toolbar",
   "keywords": [
     "ios",
@@ -30,6 +30,11 @@
   ],
   "engines": {
     "node": ">=22.18"
+  },
+  "release": {
+    "branches": [
+      "main"
+    ]
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
