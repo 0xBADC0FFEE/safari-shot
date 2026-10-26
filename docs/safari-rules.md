@@ -30,7 +30,9 @@ the classic layout: signal and Wi-Fi left, time centered, battery right. [sim]
    gradients are ignored. It fills the overscroll area and every inset without a color extension. [src][sim]
 2. **Color extension** per side, from `LocalFrameView::fixedContainerEdges`: [src][sim]
    - Hit-test the midpoint of that side of the layout viewport, inset by 4 px, ignoring `pointer-events`
-     first (retry honoring it when an invisible `pointer-events: none` layer was hit).
+     first (retry honoring it when an invisible `pointer-events: none` layer was hit). A bar held more
+     than 4 px off the edge is missed, so that side gets no extension: a bottom bar at `bottom: 6px`
+     keeps the toolbar translucent (`fixed-bottom-lifted`). [sim]
    - A hit inside a modal `<dialog>` / popover uses its `::backdrop` color, blended over the
      under-page color.
    - Otherwise walk up to the first `fixed`/`sticky` ancestor. Width along the side is compared with
