@@ -33,7 +33,9 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       # Not a devDependency: the npm CLI it bundles carries advisories no release has fixed yet.
-      # Trusted publishing: the npm plugin exchanges this job's OIDC token for a publish token and adds provenance.
+      # npm rejects this repository's immutable OIDC subjects (npm/cli#9969), so trusted publishing
+      # fails and the plugin falls back to NPM_TOKEN; OIDC still signs provenance. Back to OIDC: #8.
       - run: npx --yes semantic-release@25.0.9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -128,7 +128,8 @@ layout, not on the model, so a model change needs no rebuild; rerun the tests in
 - **Release** is automatic: on every push to `main` the [release workflow](.github/workflows/release.yml)
   runs semantic-release, which picks the version from the commits since the last `v*` tag
   (`fix:` → patch, `feat:` → minor, `!` or `BREAKING CHANGE:` → major; other types release
-  nothing), tags it, creates the GitHub release and publishes to npm through trusted publishing,
-  with provenance; no npm token is stored in the repository.
+  nothing), tags it, creates the GitHub release and publishes to npm with provenance. Until npm
+  accepts this repository's OIDC tokens ([#8](https://github.com/0xBADC0FFEE/safari-shot/issues/8)),
+  it publishes with the `NPM_TOKEN` secret of the `npm` environment.
 - `version` in [package.json](package.json) stays `0.0.0-development`: the released version lives
   in the tags and on npm, never in a commit.
