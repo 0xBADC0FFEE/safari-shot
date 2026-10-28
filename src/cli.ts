@@ -32,7 +32,7 @@ Options:
       --overscroll <pt>     Rubber-band distance for overscroll states (default: ${DEFAULT_OVERSCROLL_PT})
       --settle <ms>         Wait after the load event (default: ${DEFAULT_SETTLE_MS})
       --engine <name>       webkit or chromium (default: webkit)
-      --out <dir>           Output directory (default: ./${DEFAULT_OUT_DIR})
+      --output <dir>        Output directory; --out is the same (default: ./${DEFAULT_OUT_DIR})
       --list-devices        Print device presets as JSON and exit
   -v, --version             Print the version and exit
   -h, --help                Show this help
@@ -63,7 +63,8 @@ async function main() {
       overscroll: { type: 'string', default: String(DEFAULT_OVERSCROLL_PT) },
       settle: { type: 'string', default: String(DEFAULT_SETTLE_MS) },
       engine: { type: 'string', default: 'webkit' },
-      out: { type: 'string', default: DEFAULT_OUT_DIR },
+      output: { type: 'string' },
+      out: { type: 'string' },
       'list-devices': { type: 'boolean', default: false },
       version: { type: 'boolean', short: 'v', default: false },
       help: { type: 'boolean', short: 'h', default: false },
@@ -94,7 +95,10 @@ async function main() {
     overscroll: nonNegative(values.overscroll, 'overscroll'),
     settleMs: nonNegative(values.settle, 'settle'),
   }
-  const outDir = resolve(values.out)
+  if (values.output !== undefined && values.out !== undefined && values.output !== values.out) {
+    throw new UsageError('--output and --out name different directories; give one')
+  }
+  const outDir = resolve(values.output ?? values.out ?? DEFAULT_OUT_DIR)
   const browser = await launch(values.engine)
   const manifest: ManifestEntry[] = []
   try {

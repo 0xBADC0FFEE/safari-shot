@@ -57,7 +57,7 @@ safari-shot <url...> [options]
 | `--overscroll` | pt of rubber-band in overscroll states | `150` |
 | `--settle` | ms to wait after `load` (capped at 10 s, then the capture goes ahead) | `500` |
 | `--engine` | `webkit`, `chromium` | `webkit` |
-| `--out` | output directory | `./safari-shots` |
+| `--output`, `--out` | output directory | `./safari-shots` |
 
 Local files work too: `safari-shot ./dist/index.html`. From a checkout, put options after `--`:
 `npm run shot -- https://example.com --scroll 200`.
