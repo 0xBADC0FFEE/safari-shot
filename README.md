@@ -15,6 +15,9 @@ npx -y safari-shot https://example.com
 The first run downloads Playwright's WebKit build (about 100 MB). On Linux, install its system
 libraries once with `npx playwright install --with-deps webkit`.
 
+Playwright is a peer dependency, so installed beside your own Playwright it uses that one and its
+browsers: `npm i -g playwright safari-shot && playwright install --with-deps webkit`.
+
 ```text
 safari-shots/
   example-com/
