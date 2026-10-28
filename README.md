@@ -15,6 +15,9 @@ npx -y safari-shot https://example.com
 The first run downloads Playwright's WebKit build (about 100 MB). On Linux, install its system
 libraries once with `npx playwright install --with-deps webkit`.
 
+Playwright is a peer dependency, so installed beside your own Playwright it uses that one and its
+browsers: `npm i -g playwright safari-shot && playwright install --with-deps webkit`.
+
 ```text
 safari-shots/
   example-com/
@@ -54,7 +57,7 @@ safari-shot <url...> [options]
 | `--overscroll` | pt of rubber-band in overscroll states | `150` |
 | `--settle` | ms to wait after `load` (capped at 10 s, then the capture goes ahead) | `500` |
 | `--engine` | `webkit`, `chromium` | `webkit` |
-| `--out` | output directory | `./safari-shots` |
+| `--output`, `--out` | output directory | `./safari-shots` |
 
 Local files work too: `safari-shot ./dist/index.html`. From a checkout, put options after `--`:
 `npm run shot -- https://example.com --scroll 200`.
